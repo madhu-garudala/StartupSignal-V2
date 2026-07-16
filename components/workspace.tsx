@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { BrandMark } from "@/components/brand-mark";
+import { ResearchChat } from "@/components/research-chat";
 import { demoScenarioPrompts } from "@/lib/demo/heliograph";
 import { pipelineStages } from "@/lib/orchestration/events";
 import { ScenarioUpdateSchema, type AgentReport, type CommitteeStatement, type EvidenceItem, type InvestigationRun } from "@/lib/schemas/investigation";
@@ -105,6 +106,7 @@ export function Workspace(props: Props) {
           {props.tab === "memo" && props.run && <MemoView run={props.run} />}
         </motion.div>
       </AnimatePresence>
+      {props.run && props.mode === "live" && <ResearchChat run={props.run} />}
     </main>
   );
 }

@@ -8,6 +8,7 @@ StartupSignal V2 is a Next.js App Router application that turns a company URL in
 flowchart LR
   browser[Browser workspace] -->|NDJSON investigation request| analyze[POST /api/analyze]
   browser -->|counterfactual + validated run| scenario[POST /api/scenario]
+  browser -->|question + active run + bounded history| chat[POST /api/chat]
 
   analyze --> demo[Deterministic demo dataset]
   analyze --> guard[URL normalization + SSRF guard]
@@ -26,6 +27,9 @@ flowchart LR
   decision --> cerebras
   memo --> cerebras
   scenario --> cerebras
+  chat --> chatsearch[Question-specific Tavily search]
+  chatsearch --> chat
+  chat --> cerebras
 
   cerebras --> zod[Zod validation]
   zod --> run[InvestigationRun]
@@ -33,7 +37,7 @@ flowchart LR
   run --> browser
 ```
 
-The analysis route opens an NDJSON stream immediately. Demo mode emits deterministic staged events. Live mode runs the secure crawler and Tavily retrieval concurrently after the submitted destination passes public-network validation. It then launches three Cerebras structured-output calls concurrently, validates every packet, assembles the common run contract, and emits evidence, agents, committee statements, and the final verdict.
+The analysis route opens an NDJSON stream immediately. Demo mode emits deterministic staged events. Live mode runs the secure crawler and Tavily retrieval concurrently after the submitted destination passes public-network validation. It then launches three Cerebras structured-output calls concurrently, validates every packet, assembles the common run contract, and emits evidence, agents, committee statements, and the final verdict. The chat route accepts only a validated completed run, a 500-character question, and eight bounded conversation turns.
 
 ## Provider Boundary
 
@@ -88,3 +92,5 @@ The provider keys are read lazily from `CEREBRAS_API_KEY` and `TAVILY_API_KEY` i
 | Demo | Keyless fictional dataset | Keep as deterministic incident and sales fallback |
 
 The scenario endpoint accepts a validated completed run and a bounded counterfactual. Demo scenarios are deterministic. Live scenarios use the same Cerebras strict-output helper without gathering or inventing new evidence.
+
+The research channel binds every question to `run.profile`, so pronouns resolve to the active company. Tavily performs domain-restricted and independent question searches, filters social sources, validates public destinations, and extracts at most four sources. Cerebras returns a strict `ResearchChatAnswer`; the server filters evidence IDs and removes unsupported inline citations before returning the answer and source metadata to the widget. Forecast questions require a probability range, horizon, basis, assumptions, and uncertainty.

@@ -4,7 +4,7 @@
 2. **Reliable demo** - Build a fictional, explicitly labeled investigation with a staged event stream covering agents, evidence, committee debate, verdict, scenarios, and memo.
 3. **Command center** - Implement the responsive landing-to-workspace transition, investigation pipeline, active analysis surface, evidence rail, verdict dashboard, and print-ready memo.
 4. **Live engine** - Preserve URL normalization, DNS/IP SSRF defenses, robots-aware bounded crawling, safe text extraction, and rate limits; add bounded Tavily first-party and independent search; synthesize through concurrent Cerebras strict-output packets validated by Zod.
-5. **Stress tests** - Add deterministic demo scenarios and a validated live scenario endpoint that updates the thesis, risks, probabilities, recommendation, and memo change log.
+5. **Stress tests and research channel** - Add deterministic demo scenarios, a validated live scenario endpoint, and a company-bound research channel with question-specific Tavily retrieval and structured Cerebras answers.
 6. **Hardening and delivery** - Cover security utilities and schemas with tests, add accessibility and reduced-motion behavior, document environment/deployment constraints, and pass lint, type-check, tests, and production build.
 
 ## Vercel Constraints

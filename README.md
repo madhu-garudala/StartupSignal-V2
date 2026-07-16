@@ -1,6 +1,6 @@
 # StartupSignal V2
 
-StartupSignal turns a startup URL into an evidence-backed venture investigation, specialist-agent findings, a committee verdict, scenario stress tests, and a living investment memo. V2 preserves the original product experience while moving live synthesis to Cerebras for lower-latency model inference.
+StartupSignal turns a startup URL into an evidence-backed venture investigation, specialist-agent findings, a committee verdict, scenario stress tests, a living investment memo, and a contextual research channel. V2 preserves the original product experience while moving live synthesis to Cerebras for lower-latency model inference.
 
 The application has two paths:
 
@@ -87,10 +87,13 @@ Tavily runs two deterministic searches: one restricted to the submitted domain a
 
 When a homepage returns HTTP 403 or 429, publicly accessible same-origin XML sitemaps remain a metadata fallback while Tavily attempts to recover substantive first-party and independent evidence. If Tavily also returns no evidence, the sitemap-only safety constraint forces `Insufficient Evidence` with low confidence.
 
+The research channel is available after a live investigation completes. Every question carries the validated active-company run and up to eight recent conversation turns. Tavily retrieves at most four question-specific sources, Cerebras returns a structured answer with confidence, forecast range when applicable, assumptions, unknowns, and evidence IDs, and the server removes citations that do not match supplied evidence.
+
 ## Current limitations
 
 - Live work runs inside one request with `maxDuration = 60`; durable queues and run storage are required for broader production research.
 - Crawling is limited to four same-origin pages. Sites may block automation, prohibit crawling, require client rendering, or time out.
 - Search quality depends on Tavily's index and source ranking. StartupSignal preserves source URLs, provenance, reliability, and uncertainty rather than treating retrieval as verification.
+- Each research-channel question can consume two Tavily searches, one batch extraction, and one Cerebras completion. Production usage should add account-level quotas and persistent conversation storage.
 - Rate limiting is in-memory and best-effort per warm function instance. Use a distributed limiter before broad public exposure.
 - Runs are not persisted across devices or refreshes, and the product does not claim predictive or fiduciary authority.
