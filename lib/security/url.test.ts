@@ -12,6 +12,9 @@ describe("normalizePublicUrl", () => {
     "http://10.0.0.4",
     "http://169.254.169.254/latest/meta-data",
     "http://[::1]",
+    "http://2130706433",
+    "http://0177.0.0.1",
+    "http://[0:0:0:0:0:0:0:1]",
     "file:///etc/passwd",
     "https://user:pass@example.com",
     "https://example.com:8080",
@@ -22,7 +25,7 @@ describe("normalizePublicUrl", () => {
 });
 
 describe("address validation", () => {
-  it.each(["0.0.0.0", "10.20.30.40", "100.64.1.2", "172.31.0.1", "192.168.1.1", "198.18.0.1", "198.51.100.2", "203.0.113.4", "::1", "fc00::1", "fe80::1", "2001:db8::1", "::ffff:127.0.0.1", "::ffff:7f00:1"])("classifies %s as private or reserved", (address) => {
+  it.each(["0.0.0.0", "10.20.30.40", "100.64.1.2", "172.31.0.1", "192.168.1.1", "198.18.0.1", "198.51.100.2", "203.0.113.4", "::1", "fc00::1", "fe80::1", "2001:db8::1", "64:ff9b::7f00:1", "2002:7f00:1::", "2001:0000:4136:e378:8000:63bf:3fff:fdd2", "::ffff:127.0.0.1", "::ffff:7f00:1"])("classifies %s as private or reserved", (address) => {
     expect(isPrivateAddress(address)).toBe(true);
   });
 

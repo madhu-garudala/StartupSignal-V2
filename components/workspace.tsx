@@ -53,8 +53,10 @@ function ModeBadge({ mode }: { mode: "demo" | "live" }) {
 }
 
 export function Workspace(props: Props) {
-  const completed = Object.values(props.stages).filter((stage) => stage.status === "complete" || stage.status === "low_evidence").length;
-  const progress = props.run ? 100 : Math.round((completed / pipelineStages.length) * 100);
+  const progressUnits = Object.values(props.stages).reduce((total, stage) => (
+    total + (stage.status === "complete" || stage.status === "low_evidence" ? 1 : stage.status === "running" ? 0.65 : 0)
+  ), 0);
+  const progress = props.run ? 100 : Math.min(92, Math.round((progressUnits / pipelineStages.length) * 100));
   const activeAgent = props.agents.at(-1);
   const canOpen = Boolean(props.run);
 
@@ -298,7 +300,7 @@ function VerdictView({ run, onMemo }: { run: InvestigationRun; onMemo: () => voi
             {run.scores.map((score) => (
               <div key={score.id} className="grid grid-cols-[1fr_52px] items-center gap-5 border-b border-[#1f2629] py-4 last:border-b-0 sm:grid-cols-[180px_1fr_52px]">
                 <span className="text-xs text-[#a9b3b8]">{score.label}</span>
-                <div className="hidden h-1 bg-[#232b2f] sm:block"><div className={`meter-fill h-full ${score.id === "risk" ? "bg-[var(--red)]" : "bg-[var(--cyan)]"}`} style={{ width: `${score.score}%` }} /></div>
+                <div className="hidden h-1 bg-[#232b2f] sm:block"><div className={`meter-fill h-full ${score.id === "risk" || score.label.toLowerCase() === "overall risk" ? "bg-[var(--red)]" : "bg-[var(--cyan)]"}`} style={{ width: `${score.score}%` }} /></div>
                 <span className="mono text-right text-xs text-white">{score.score}</span>
               </div>
             ))}
@@ -351,9 +353,7 @@ function ScenarioView({ run, setRun, mode }: { run: InvestigationRun; setRun: Pr
       setRun((current) => current ? ({
         ...current,
         scenarios: [...current.scenarios.filter((item) => item.id !== update.id), update],
-        verdict: { ...current.verdict, recommendation: update.recommendation, conviction: Math.max(0, Math.min(100, current.verdict.conviction + update.convictionDelta)), confidence: Math.max(0, Math.min(100, current.verdict.confidence + update.confidenceDelta)) },
-        probabilities: current.probabilities.map((item) => ({ ...item, range: update.probabilityUpdates.find((change) => change.scenarioId === item.id)?.range || item.range })),
-        memo: { ...current.memo, thesis: update.thesisDelta, changeLog: [...current.memo.changeLog, update.memoEntry] },
+        memo: { ...current.memo, changeLog: [...current.memo.changeLog.filter((entry) => entry !== update.memoEntry), update.memoEntry] },
       }) : current);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Scenario failed."); }
     finally { setLoading(null); }

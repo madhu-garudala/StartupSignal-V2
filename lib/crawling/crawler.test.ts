@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSitemap, readBoundedBody } from "@/lib/crawling/crawler";
+import { parseRobots, parseSitemap, readBoundedBody } from "@/lib/crawling/crawler";
 
 describe("readBoundedBody", () => {
   it("returns a complete body below the configured limit", async () => {
@@ -20,6 +20,12 @@ describe("readBoundedBody", () => {
     expect(new TextEncoder().encode(result.text).byteLength).toBe(4);
     expect(result.truncated).toBe(true);
   });
+
+  it("decodes declared legacy web charsets", async () => {
+    const result = await readBoundedBody(new Response(new Uint8Array([0x80])), 10, "windows-1252");
+
+    expect(result.text).toBe("€");
+  });
 });
 
 describe("parseSitemap", () => {
@@ -31,5 +37,32 @@ describe("parseSitemap", () => {
 
     expect(parsed.sitemaps.map(String)).toEqual(["https://example.com/company.xml"]);
     expect(pages.pages).toEqual([{ url: new URL("https://example.com/about"), lastModified: "2026-07-01" }]);
+  });
+});
+
+describe("parseRobots", () => {
+  it("uses the specific bot group instead of the wildcard group", () => {
+    const allowed = parseRobots(`
+      User-agent: *
+      Disallow: /
+      User-agent: StartupSignalBot
+      Disallow: /private
+    `);
+
+    expect(allowed(new URL("https://example.com/about"))).toBe(true);
+    expect(allowed(new URL("https://example.com/private/report"))).toBe(false);
+  });
+
+  it("supports wildcards, end anchors, and longest-match Allow rules", () => {
+    const allowed = parseRobots(`
+      User-agent: *
+      Disallow: /*?preview=
+      Disallow: /reports/*$
+      Allow: /reports/public$
+    `);
+
+    expect(allowed(new URL("https://example.com/page?preview=true"))).toBe(false);
+    expect(allowed(new URL("https://example.com/reports/private"))).toBe(false);
+    expect(allowed(new URL("https://example.com/reports/public"))).toBe(true);
   });
 });

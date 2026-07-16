@@ -44,7 +44,7 @@ export function sourceKey(value: string) {
     }
     return url.toString().replace(/\/$/, "").toLowerCase();
   } catch {
-    return "";
+    return value.trim().toLowerCase();
   }
 }
 

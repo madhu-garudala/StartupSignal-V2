@@ -66,7 +66,8 @@ flowchart LR
   normalize --> dns[Resolve all addresses]
   dns --> deny{Public destination?}
   deny -->|No| reject[Reject request]
-  deny -->|Yes| fetch[Manual redirect fetch]
+  deny -->|Yes| pin[Pin connection to validated IP]
+  pin --> fetch[Manual redirect fetch]
   deny -->|Yes| search[Fixed Tavily API endpoint]
   fetch --> dns
   fetch --> bytes[500 KB retained-byte cap]
@@ -79,13 +80,13 @@ flowchart LR
   validate --> client[Stream typed events]
 ```
 
-The provider keys are read lazily from `CEREBRAS_API_KEY` and `TAVILY_API_KEY` inside server-only modules. They are never exposed through `NEXT_PUBLIC_` variables. Direct page crawling remains the primary first-party connector. Tavily adds at most three domain-restricted and three independent sources; social and UGC domains are excluded from the independent query. For HTTP 403/429 homepages, a bounded sitemap fallback may add URL catalogs while Tavily attempts substantive retrieval. If no substantive sources are recovered, deterministic post-processing forces `Insufficient Evidence`.
+The provider keys are read lazily from `CEREBRAS_API_KEY` and `TAVILY_API_KEY` inside server-only modules. They are never exposed through `NEXT_PUBLIC_` variables. Direct page crawling remains the primary first-party connector. Every direct connection uses an Undici dispatcher pinned to the public DNS result that passed SSRF validation, including redirects. Tavily adds at most three domain-restricted and three independent sources; social and UGC domains are excluded from the independent query. For HTTP 403/429 homepages, a bounded sitemap fallback may add URL catalogs while Tavily attempts substantive retrieval. If no substantive sources are recovered, the route assembles `Insufficient Evidence` deterministically without model spend.
 
 ## Serverless Constraints
 
 | Area | Current design | Production extension |
 | --- | --- | --- |
-| Execution | One bounded request, `maxDuration = 60` | Durable queue and resumable run state |
+| Execution | One bounded request, `maxDuration = 60`, 55-second abort deadline | Durable queue and resumable run state |
 | Persistence | Client memory | Database-backed investigations and memo versions |
 | Rate limits | Per-instance memory | Distributed Vercel KV or equivalent |
 | Evidence | Four direct pages or sitemap catalogs, plus six Tavily sources | Audited paid datasets, repositories, and data-room connectors |

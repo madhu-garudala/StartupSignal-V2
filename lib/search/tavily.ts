@@ -20,24 +20,20 @@ const MAX_SEARCH_SOURCES = 6;
 const MAX_EXCERPT_CHARACTERS = 4_000;
 type SearchCandidate = TavilySearchResult & { scope: "first-party" | "independent" };
 
-async function tavilyRequest<T>(endpoint: string, body: Record<string, unknown>, schema: ZodType<T>): Promise<T> {
+async function tavilyRequest<T>(endpoint: string, body: Record<string, unknown>, schema: ZodType<T>, externalSignal?: AbortSignal): Promise<T> {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) throw new Error("TAVILY_API_KEY is not configured.");
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(endpoint, {
+  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const signal = externalSignal ? AbortSignal.any([externalSignal, timeoutSignal]) : timeoutSignal;
+  const response = await fetch(endpoint, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: controller.signal,
+      signal,
       cache: "no-store",
-    });
-    if (!response.ok) throw new Error(`Tavily returned HTTP ${response.status}.`);
-    return schema.parse(await response.json());
-  } finally {
-    clearTimeout(timeout);
-  }
+  });
+  if (!response.ok) throw new Error(`Tavily returned HTTP ${response.status}.`);
+  return schema.parse(await response.json());
 }
 
 async function publicCandidate(result: TavilySearchResult, submitted: URL, scope: "first-party" | "independent") {
@@ -52,7 +48,7 @@ async function publicCandidate(result: TavilySearchResult, submitted: URL, scope
   }
 }
 
-async function extractCandidates(candidates: SearchCandidate[], query: string, idPrefix: string) {
+async function extractCandidates(candidates: SearchCandidate[], query: string, idPrefix: string, signal?: AbortSignal) {
   const warnings: string[] = [];
   const extracted = new Map<string, string>();
   try {
@@ -65,7 +61,7 @@ async function extractCandidates(candidates: SearchCandidate[], query: string, i
       timeout: 12,
       include_images: false,
       include_usage: true,
-    }, TavilyExtractResponseSchema);
+    }, TavilyExtractResponseSchema, signal);
     for (const result of response.results) extracted.set(sourceKey(result.url), result.raw_content);
     if (response.failed_results.length) warnings.push(`TAVILY EXTRACT: ${response.failed_results.length} selected source(s) could not be extracted; search excerpts were used where available.`);
   } catch {
@@ -94,7 +90,7 @@ async function extractCandidates(candidates: SearchCandidate[], query: string, i
   return { sources, warnings };
 }
 
-export async function searchCompanyEvidence(canonicalUrl: string) {
+export async function searchCompanyEvidence(canonicalUrl: string, signal?: AbortSignal) {
   if (!process.env.TAVILY_API_KEY) {
     return { sources: [] as SourceDocument[], warnings: ["TAVILY UNAVAILABLE: Search enrichment was skipped because TAVILY_API_KEY is not configured."] };
   }
@@ -117,13 +113,13 @@ export async function searchCompanyEvidence(canonicalUrl: string) {
       ...common,
       query: `site:${domain} product company team pricing customers documentation`,
       include_domains: [domain],
-    }, TavilySearchResponseSchema),
+    }, TavilySearchResponseSchema, signal),
     tavilyRequest(TAVILY_SEARCH_URL, {
       ...common,
       query: `"${companyTerm}" funding revenue valuation customers competitors risk`,
       exclude_domains: [domain, "reddit.com", "linkedin.com", "youtube.com", "facebook.com", "instagram.com", "tiktok.com", "twitter.com", "x.com"],
       exact_match: true,
-    }, TavilySearchResponseSchema),
+    }, TavilySearchResponseSchema, signal),
   ]);
 
   const warnings: string[] = [];
@@ -148,7 +144,7 @@ export async function searchCompanyEvidence(canonicalUrl: string) {
     return { sources: [] as SourceDocument[], warnings: [...warnings, "TAVILY SEARCH: No validated public sources were returned."] };
   }
 
-  const extracted = await extractCandidates(unique, `${domain} company product founders customers business model traction risks`, "tavily");
+  const extracted = await extractCandidates(unique, `${domain} company product founders customers business model traction risks`, "tavily", signal);
 
   return {
     sources: extracted.sources,
@@ -160,7 +156,7 @@ export async function searchCompanyEvidence(canonicalUrl: string) {
   };
 }
 
-export async function searchQuestionEvidence(canonicalUrl: string, question: string) {
+export async function searchQuestionEvidence(canonicalUrl: string, question: string, signal?: AbortSignal) {
   if (!process.env.TAVILY_API_KEY) {
     return { sources: [] as SourceDocument[], warnings: ["TAVILY UNAVAILABLE: The answer used only evidence from the current investigation."] };
   }
@@ -184,12 +180,12 @@ export async function searchQuestionEvidence(canonicalUrl: string, question: str
       ...common,
       query: `site:${domain} ${boundedQuestion}`,
       include_domains: [domain],
-    }, TavilySearchResponseSchema),
+    }, TavilySearchResponseSchema, signal),
     tavilyRequest(TAVILY_SEARCH_URL, {
       ...common,
       query: `"${companyTerm}" ${boundedQuestion}`,
       exclude_domains: [domain, "reddit.com", "linkedin.com", "youtube.com", "facebook.com", "instagram.com", "tiktok.com", "twitter.com", "x.com"],
-    }, TavilySearchResponseSchema),
+    }, TavilySearchResponseSchema, signal),
   ]);
 
   const warnings: string[] = [];
@@ -212,7 +208,7 @@ export async function searchQuestionEvidence(canonicalUrl: string, question: str
     .slice(0, 4);
   if (!unique.length) return { sources: [] as SourceDocument[], warnings: [...warnings, "TAVILY CHAT SEARCH: No additional validated sources were returned."] };
 
-  const extracted = await extractCandidates(unique, `${companyTerm}: ${boundedQuestion}`, "chat");
+  const extracted = await extractCandidates(unique, `${companyTerm}: ${boundedQuestion}`, "chat", signal);
   return {
     sources: extracted.sources,
     warnings: [...warnings, ...extracted.warnings, `TAVILY CHAT SEARCH: ${extracted.sources.length} question-specific source(s) were added.`],

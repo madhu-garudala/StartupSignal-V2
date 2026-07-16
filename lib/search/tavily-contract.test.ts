@@ -23,4 +23,9 @@ describe("Tavily contracts", () => {
     expect(sourceKey("https://example.com/about/?utm_source=test#team")).toBe("https://example.com/about");
     expect(cleanTavilyContent("<script>ignore()</script><b>Verified</b>\u0000 evidence")).toBe("Verified evidence");
   });
+
+  it("keeps invalid source keys distinct instead of collapsing them", () => {
+    expect(sourceKey("not a url")).toBe("not a url");
+    expect(sourceKey("another invalid url")).not.toBe(sourceKey("not a url"));
+  });
 });

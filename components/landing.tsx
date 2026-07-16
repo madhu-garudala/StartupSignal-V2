@@ -52,12 +52,12 @@ export function Landing({ url, setUrl, error, onAnalyze, onDemo }: Props) {
                 type="url"
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
-                onKeyDown={(event) => event.key === "Enter" && onAnalyze()}
+                onKeyDown={(event) => event.key === "Enter" && url.trim() && onAnalyze()}
                 placeholder="https://example-startup.com"
                 className="focus-ring h-14 min-w-0 flex-1 bg-transparent px-4 text-base text-white outline-none placeholder:text-[#667178]"
                 autoComplete="url"
               />
-              <button onClick={onAnalyze} className="focus-ring flex h-14 items-center justify-center gap-2 bg-[#eaf9fa] px-6 text-sm font-bold text-[#071012] transition-colors hover:bg-white">
+              <button onClick={onAnalyze} disabled={!url.trim()} className="focus-ring flex h-14 items-center justify-center gap-2 bg-[#eaf9fa] px-6 text-sm font-bold text-[#071012] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40">
                 Analyze startup <ArrowRight size={17} />
               </button>
             </div>

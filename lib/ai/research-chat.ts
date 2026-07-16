@@ -33,8 +33,9 @@ export async function answerResearchQuestion(
   run: InvestigationRun,
   messages: ResearchChatMessage[],
   question: string,
+  signal?: AbortSignal,
 ) {
-  const retrieval = await searchQuestionEvidence(run.profile.url, question).catch(() => ({
+  const retrieval = await searchQuestionEvidence(run.profile.url, question, signal).catch(() => ({
     sources: [],
     warnings: ["Question-specific search was unavailable; the answer used the current investigation only."],
   }));
@@ -86,6 +87,9 @@ export async function answerResearchQuestion(
       untrustedEvidence: evidence,
     }),
     maxCompletionTokens: 2_200,
+    signal,
+    primaryTimeoutMs: 16_000,
+    repairTimeoutMs: 10_000,
   });
 
   const sanitizedAnswer = sanitizeInlineCitations(answer.answer, validIds);

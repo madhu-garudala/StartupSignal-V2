@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Landing } from "@/components/landing";
 import { Workspace, type StageState, type WorkspaceTab } from "@/components/workspace";
 import { InvestigationEventSchema } from "@/lib/orchestration/events";
@@ -18,13 +18,19 @@ export function StartupSignal() {
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("investigation");
+  const startLock = useRef(false);
+  const activeRequest = useRef<AbortController | null>(null);
 
   async function start(selectedMode: "demo" | "live") {
+    if (startLock.current) return;
     const target = selectedMode === "demo" ? "https://demo.startupsignal.dev/heliograph" : url.trim();
     if (selectedMode === "live") {
       try { new URL(/^https?:\/\//i.test(target) ? target : `https://${target}`); }
       catch { setError("Enter a valid startup website URL."); return; }
     }
+    startLock.current = true;
+    const requestController = new AbortController();
+    activeRequest.current = requestController;
     setMode(selectedMode);
     setView("workspace");
     setRun(null);
@@ -41,6 +47,7 @@ export function StartupSignal() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: target, mode: selectedMode }),
+        signal: requestController.signal,
       });
       if (!response.ok || !response.body) {
         const body = await response.json().catch(() => ({}));
@@ -50,6 +57,7 @@ export function StartupSignal() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let terminalEvent = false;
       while (true) {
         const { value, done } = await reader.read();
         buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
@@ -57,17 +65,23 @@ export function StartupSignal() {
         buffer = lines.pop() || "";
         for (const raw of lines) {
           if (!raw.trim()) continue;
-          const parsed = InvestigationEventSchema.safeParse(JSON.parse(raw));
+          let value: unknown;
+          try { value = JSON.parse(raw); } catch { continue; }
+          const parsed = InvestigationEventSchema.safeParse(value);
           if (!parsed.success) continue;
           const event = parsed.data;
           if (event.type === "stage") setStages((current) => ({ ...current, [event.stageId]: { status: event.status, message: event.message } }));
           if (event.type === "agent") setAgents((current) => current.some((item) => item.id === event.agentId) ? current : [...current, event.agent]);
           if (event.type === "evidence") setEvidence((current) => current.some((item) => item.id === event.evidenceId) ? current : [...current, event.evidence]);
           if (event.type === "committee") setCommittee((current) => current.some((item) => item.id === event.statementId) ? current : [...current, event.statement]);
-          if (event.type === "error") setError(event.message);
+          if (event.type === "error") {
+            terminalEvent = true;
+            setError(event.message);
+          }
           if (event.type === "complete") {
             const validated = InvestigationRunSchema.safeParse(event.run);
             if (validated.success) {
+              terminalEvent = true;
               setRun(validated.data);
               setAgents(validated.data.agents);
               setEvidence(validated.data.evidence);
@@ -77,14 +91,20 @@ export function StartupSignal() {
         }
         if (done) break;
       }
+      if (!terminalEvent) throw new Error("The investigation stream ended before a final result was delivered.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The investigation failed safely.");
+      if (!requestController.signal.aborted) setError(cause instanceof Error ? cause.message : "The investigation failed safely.");
     } finally {
+      if (activeRequest.current === requestController) activeRequest.current = null;
+      startLock.current = false;
       setRunning(false);
     }
   }
 
   function reset() {
+    activeRequest.current?.abort();
+    activeRequest.current = null;
+    startLock.current = false;
     setView("landing");
     setRun(null);
     setError(null);

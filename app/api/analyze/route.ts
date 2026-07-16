@@ -3,7 +3,7 @@ import { crawlCompany } from "@/lib/crawling/crawler";
 import { heliographDemo } from "@/lib/demo/heliograph";
 import { pipelineStages, type InvestigationEvent } from "@/lib/orchestration/events";
 import { AnalysisRequestSchema, InvestigationRunSchema, type InvestigationRun } from "@/lib/schemas/investigation";
-import { checkRateLimit } from "@/lib/security/rate-limit";
+import { checkRateLimit, requestClientKey } from "@/lib/security/rate-limit";
 import { assertPublicDestination, normalizePublicUrl, UrlSecurityError } from "@/lib/security/url";
 import { sourceKey } from "@/lib/search/tavily-contract";
 import { searchCompanyEvidence } from "@/lib/search/tavily";
@@ -19,14 +19,25 @@ function line(event: InvestigationEvent) {
 }
 
 export async function POST(request: Request) {
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const ip = requestClientKey(request);
   if (!checkRateLimit(ip).allowed) return Response.json({ error: "Too many investigations. Try again in a minute." }, { status: 429 });
   const body = AnalysisRequestSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return Response.json({ error: "A valid URL and analysis mode are required." }, { status: 400 });
 
-  const stream = new ReadableStream({
+  const lifecycle = new AbortController();
+  const deadline = setTimeout(() => {
+    lifecycle.abort(new Error("Investigation reached its 55-second safety deadline. Try again or open the demo."));
+  }, 55_000);
+  const onDisconnect = () => lifecycle.abort(new Error("Investigation canceled because the client disconnected."));
+  request.signal.addEventListener("abort", onDisconnect, { once: true });
+
+  const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (event: InvestigationEvent) => controller.enqueue(line(event));
+      let closed = false;
+      const send = (event: InvestigationEvent) => {
+        if (closed) return;
+        try { controller.enqueue(line(event)); } catch { closed = true; }
+      };
       const runId = body.data.mode === "demo" ? heliographDemo.id : `live-${crypto.randomUUID()}`;
       send({ type: "run_started", runId, mode: body.data.mode, url: body.data.url });
       try {
@@ -50,8 +61,8 @@ export async function POST(request: Request) {
           await assertPublicDestination(submitted);
           send({ type: "stage", stageId: "market", status: "running", message: "Searching bounded first-party and independent evidence" });
           const [crawlAttempt, searchAttempt] = await Promise.allSettled([
-            crawlCompany(submitted.toString()),
-            searchCompanyEvidence(submitted.toString()),
+            crawlCompany(submitted.toString(), lifecycle.signal),
+            searchCompanyEvidence(submitted.toString(), lifecycle.signal),
           ]);
 
           const crawled = crawlAttempt.status === "fulfilled" ? crawlAttempt.value : null;
@@ -92,11 +103,14 @@ export async function POST(request: Request) {
             status: searched.sources.length ? "complete" : "low_evidence",
             message: searched.sources.length ? `${searched.sources.length} Tavily source(s) verified and bounded` : "No additional indexed evidence was available",
           });
-          send({ type: "stage", stageId: "product", status: "running", message: "Cerebras committee is analyzing the corpus" });
+          for (const stage of pipelineStages.filter((item) => !["discovery", "website", "market"].includes(item.id))) {
+            send({ type: "stage", stageId: stage.id, status: "running", message: "Specialist synthesis is active" });
+          }
           const run: InvestigationRun = InvestigationRunSchema.parse(await analyzeSources(
             canonicalUrl,
             sources,
             [...crawlWarnings, ...searched.warnings, ...(sitemapOnly ? ["Only sitemap metadata was recovered; deterministic evidence constraints apply."] : [])],
+            lifecycle.signal,
           ));
           for (const item of run.evidence) send({ type: "evidence", evidenceId: item.id, evidence: item });
           for (const agent of run.agents) {
@@ -108,11 +122,19 @@ export async function POST(request: Request) {
           send({ type: "complete", run });
         }
       } catch (error) {
-        const message = error instanceof UrlSecurityError || error instanceof Error ? error.message : "Investigation failed safely.";
+        const reason = lifecycle.signal.aborted ? lifecycle.signal.reason : error;
+        const message = reason instanceof UrlSecurityError || reason instanceof Error ? reason.message : "Investigation failed safely.";
         send({ type: "error", message, recoverable: true });
       } finally {
-        controller.close();
+        clearTimeout(deadline);
+        request.signal.removeEventListener("abort", onDisconnect);
+        if (!closed) {
+          try { controller.close(); } catch { /* The browser may already have canceled the stream. */ }
+        }
       }
+    },
+    cancel() {
+      lifecycle.abort(new Error("Investigation canceled because the client disconnected."));
     },
   });
 

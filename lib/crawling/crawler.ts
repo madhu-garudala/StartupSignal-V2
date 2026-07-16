@@ -1,5 +1,7 @@
 import * as cheerio from "cheerio";
-import { assertPublicDestination, normalizePublicUrl, UrlSecurityError } from "@/lib/security/url";
+import type { LookupFunction } from "node:net";
+import { Agent, fetch as undiciFetch } from "undici";
+import { normalizePublicUrl, resolvePublicDestination, UrlSecurityError } from "@/lib/security/url";
 import type { SourceDocument } from "@/lib/schemas/investigation";
 
 const MAX_REDIRECTS = 3;
@@ -8,6 +10,7 @@ const REQUEST_TIMEOUT_MS = 8_000;
 const MAX_PAGES = 4;
 
 type FetchedPage = { url: URL; html: string; contentType: string; truncated: boolean };
+type BodyResponse = { body: unknown };
 type SitemapEntry = { url: URL; lastModified: string | null };
 type ParsedSitemap = { sitemaps: URL[]; pages: SitemapEntry[] };
 
@@ -18,10 +21,11 @@ export class CrawlHttpError extends Error {
   }
 }
 
-export async function readBoundedBody(response: Response, maxBytes = MAX_PAGE_BYTES) {
-  const reader = response.body?.getReader();
+export async function readBoundedBody(response: BodyResponse, maxBytes = MAX_PAGE_BYTES, encoding = "utf-8") {
+  const reader = (response.body as ReadableStream<Uint8Array> | null)?.getReader();
   if (!reader) return { text: "", truncated: false, bytesRead: 0 };
-  const decoder = new TextDecoder();
+  let decoder: TextDecoder;
+  try { decoder = new TextDecoder(encoding); } catch { decoder = new TextDecoder(); }
   let bytes = 0;
   let output = "";
   let truncated = false;
@@ -47,55 +51,99 @@ export async function readBoundedBody(response: Response, maxBytes = MAX_PAGE_BY
   return { text: output + decoder.decode(), truncated, bytesRead: bytes };
 }
 
-export async function secureFetch(startUrl: URL, accept = "text/html, text/plain;q=0.9"): Promise<FetchedPage> {
+export async function secureFetch(startUrl: URL, accept = "text/html, text/plain;q=0.9", externalSignal?: AbortSignal): Promise<FetchedPage> {
   let url = startUrl;
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
-    await assertPublicDestination(url);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const addresses = await resolvePublicDestination(url);
+    const selected = addresses.find((address) => address.family === 4) || addresses[0];
+    const lookup: LookupFunction = (_hostname, _options, callback) => callback(null, selected.address, selected.family);
+    const dispatcher = new Agent({
+      connections: 1,
+      pipelining: 0,
+      connect: { lookup, timeout: REQUEST_TIMEOUT_MS },
+    });
+    const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    const signal = externalSignal ? AbortSignal.any([externalSignal, timeoutSignal]) : timeoutSignal;
     try {
-      const response = await fetch(url, {
+      const response = await undiciFetch(url, {
+        dispatcher,
         redirect: "manual",
-        signal: controller.signal,
+        signal,
         headers: { Accept: accept, "User-Agent": "StartupSignalBot/1.0 (+bounded research crawler)" },
-        cache: "no-store",
       });
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get("location");
+        await response.body?.cancel().catch(() => undefined);
         if (!location || redirect === MAX_REDIRECTS) throw new UrlSecurityError("The website redirected too many times.");
         url = normalizePublicUrl(new URL(location, url).toString());
         continue;
       }
-      if (!response.ok) throw new CrawlHttpError(response.status, url.toString());
-      const contentType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new CrawlHttpError(response.status, url.toString());
+      }
+      const contentTypeHeader = response.headers.get("content-type") || "";
+      const contentType = contentTypeHeader.split(";")[0].trim().toLowerCase();
       if (!["text/html", "text/plain", "application/xml", "text/xml", "application/rss+xml"].includes(contentType)) {
+        await response.body?.cancel().catch(() => undefined);
         throw new UrlSecurityError("The URL did not return a supported text page.");
       }
-      const body = await readBoundedBody(response);
+      const charset = contentTypeHeader.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1] || "utf-8";
+      const body = await readBoundedBody(response, MAX_PAGE_BYTES, charset);
       return { url, html: body.text, contentType, truncated: body.truncated };
     } finally {
-      clearTimeout(timeout);
+      await dispatcher.close();
     }
   }
   throw new UrlSecurityError("Unable to fetch the website safely.");
 }
 
-function parseRobots(text: string) {
-  const disallowed: string[] = [];
-  let applies = false;
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.replace(/#.*/, "").trim();
-    const [key, ...rest] = line.split(":");
-    const value = rest.join(":").trim();
-    if (key?.toLowerCase() === "user-agent") applies = value === "*" || value.toLowerCase() === "startupsignalbot";
-    if (applies && key?.toLowerCase() === "disallow" && value) disallowed.push(value);
-  }
-  return (url: URL) => !disallowed.some((path) => path === "/" || url.pathname.startsWith(path));
+type RobotsRule = { allow: boolean; pattern: string };
+
+function robotsPattern(pattern: string) {
+  const anchored = pattern.endsWith("$");
+  const value = anchored ? pattern.slice(0, -1) : pattern;
+  const source = value.split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*");
+  return new RegExp(`^${source}${anchored ? "$" : ""}`);
 }
 
-async function robotsPolicy(origin: string) {
+export function parseRobots(text: string) {
+  const groups: Array<{ agents: string[]; rules: RobotsRule[] }> = [];
+  let group = { agents: [] as string[], rules: [] as RobotsRule[] };
+  const flush = () => {
+    if (group.agents.length) groups.push(group);
+    group = { agents: [], rules: [] };
+  };
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.replace(/#.*/, "").trim();
+    if (!line) continue;
+    const [key, ...rest] = line.split(":");
+    const value = rest.join(":").trim();
+    const normalizedKey = key?.toLowerCase();
+    if (normalizedKey === "user-agent") {
+      if (group.rules.length) flush();
+      group.agents.push(value.toLowerCase());
+    } else if ((normalizedKey === "allow" || normalizedKey === "disallow") && group.agents.length && value) {
+      group.rules.push({ allow: normalizedKey === "allow", pattern: value });
+    }
+  }
+  flush();
+
+  const specific = groups.filter((entry) => entry.agents.includes("startupsignalbot"));
+  const selected = specific.length ? specific : groups.filter((entry) => entry.agents.includes("*"));
+  const rules = selected.flatMap((entry) => entry.rules);
+  return (url: URL) => {
+    const path = `${url.pathname}${url.search}`;
+    const matches = rules
+      .filter((rule) => robotsPattern(rule.pattern).test(path))
+      .sort((left, right) => right.pattern.replace(/\$$/, "").length - left.pattern.replace(/\$$/, "").length || Number(right.allow) - Number(left.allow));
+    return matches[0]?.allow ?? true;
+  };
+}
+
+async function robotsPolicy(origin: string, signal?: AbortSignal) {
   try {
-    const page = await secureFetch(new URL("/robots.txt", origin), "text/plain");
+    const page = await secureFetch(new URL("/robots.txt", origin), "text/plain", signal);
     return parseRobots(page.html);
   } catch {
     return () => true;
@@ -170,9 +218,9 @@ function sitemapTitle(url: URL) {
   return `${label.charAt(0).toUpperCase()}${label.slice(1)} sitemap`;
 }
 
-async function crawlSitemapEvidence(start: URL, blockedStatus: number, allowed: (url: URL) => boolean) {
+async function crawlSitemapEvidence(start: URL, blockedStatus: number, allowed: (url: URL) => boolean, signal?: AbortSignal) {
   const rootUrl = new URL("/sitemap.xml", start.origin);
-  const rootPage = await secureFetch(rootUrl, "application/xml, text/xml;q=0.9, text/plain;q=0.8");
+  const rootPage = await secureFetch(rootUrl, "application/xml, text/xml;q=0.9, text/plain;q=0.8", signal);
   const root = parseSitemap(rootPage.html, rootPage.url);
   const catalogs: Array<{ sitemapUrl: URL; entries: SitemapEntry[]; truncated: boolean }> = [];
   if (root.pages.length) catalogs.push({ sitemapUrl: rootPage.url, entries: root.pages, truncated: rootPage.truncated });
@@ -183,7 +231,7 @@ async function crawlSitemapEvidence(start: URL, blockedStatus: number, allowed: 
     .slice(0, MAX_PAGES);
   for (const sitemapUrl of nested) {
     try {
-      const page = await secureFetch(sitemapUrl, "application/xml, text/xml;q=0.9, text/plain;q=0.8");
+      const page = await secureFetch(sitemapUrl, "application/xml, text/xml;q=0.9, text/plain;q=0.8", signal);
       const parsed = parseSitemap(page.html, page.url);
       if (parsed.pages.length) catalogs.push({ sitemapUrl: page.url, entries: parsed.pages, truncated: page.truncated });
     } catch {
@@ -222,17 +270,17 @@ async function crawlSitemapEvidence(start: URL, blockedStatus: number, allowed: 
   return { canonicalUrl: start.toString(), sources, warnings, evidenceMode: "sitemap" as const };
 }
 
-export async function crawlCompany(input: string) {
+export async function crawlCompany(input: string, signal?: AbortSignal) {
   const start = normalizePublicUrl(input);
-  const allowed = await robotsPolicy(start.origin);
+  const allowed = await robotsPolicy(start.origin, signal);
   if (!allowed(start)) throw new UrlSecurityError("The site robots policy disallows crawling the submitted page.");
 
   let fetchedFirst: FetchedPage;
   try {
-    fetchedFirst = await secureFetch(start);
+    fetchedFirst = await secureFetch(start, undefined, signal);
   } catch (error) {
     if (error instanceof CrawlHttpError && [403, 429].includes(error.status)) {
-      return crawlSitemapEvidence(start, error.status, allowed);
+      return crawlSitemapEvidence(start, error.status, allowed, signal);
     }
     throw error;
   }
@@ -251,7 +299,7 @@ export async function crawlCompany(input: string) {
 
   for (const url of queue) {
     try {
-      const page = extractPage(await secureFetch(url), sources.length + 1);
+      const page = extractPage(await secureFetch(url, undefined, signal), sources.length + 1);
       if (page.truncated) warnings.push(`SOURCE TRUNCATED: ${page.url} exceeded the ${MAX_PAGE_BYTES / 1_000} KB fetch limit. Analysis used only the bounded prefix.`);
       const { links: _links, truncated: _truncated, ...source } = page;
       void _links;

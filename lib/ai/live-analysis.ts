@@ -14,9 +14,11 @@ import {
   type SourceDocument,
 } from "@/lib/schemas/investigation";
 
-const ModelCompanyProfileSchema = CompanyProfileSchema.extend({
-  url: z.string().min(1),
-  faviconUrl: z.string().nullable(),
+const ModelCompanyProfileSchema = CompanyProfileSchema.omit({
+  domain: true,
+  url: true,
+  analyzedAt: true,
+  faviconUrl: true,
 });
 
 const IntelligencePacketSchema = z.object({
@@ -41,8 +43,10 @@ const ProviderDecisionPacketSchema = DecisionPacketSchema.extend({
   probabilities: z.array(ProbabilityScenarioSchema),
 });
 
+const ModelInvestmentMemoSchema = InvestmentMemoSchema.omit({ generatedAt: true, model: true });
+
 const MemoPacketSchema = z.object({
-  memo: InvestmentMemoSchema,
+  memo: ModelInvestmentMemoSchema,
   warnings: z.array(z.string()),
 });
 
@@ -116,6 +120,83 @@ const defaultAgentUnknowns: Record<(typeof agentTemplates)[number][0], string> =
   bear: "The probability and severity of downside triggers cannot be quantified from the available evidence.",
   committee: "The recommendation remains sensitive to private operating data and customer-reference diligence.",
 };
+
+function sitemapOnlySkeleton(canonicalUrl: string): ParsedAnalysis {
+  const url = new URL(canonicalUrl);
+  const name = url.hostname.replace(/^www\./, "").split(".")[0].replace(/[-_]+/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
+  return ModelAnalysisSchema.parse({
+    profile: {
+      name,
+      description: "Direct page content was unavailable; only first-party sitemap catalog metadata was accessible.",
+      category: "Unknown",
+      stage: "Unknown",
+      stageInferred: false,
+      location: "Unknown",
+      founders: [],
+    },
+    agents: agentTemplates.map(([id, role, stage]) => ({
+      id: `${id}-agent`,
+      role,
+      stage,
+      task: `Assess the ${role.toLowerCase()} workstream.`,
+      summary: "Substantive conclusions are unavailable from sitemap metadata alone.",
+      findings: ["First-party sitemap paths were accessible, but linked page content was not."],
+      claims: [],
+      risks: ["URL paths must not be treated as proof of company claims."],
+      unknowns: [defaultAgentUnknowns[id]],
+      confidence: 0,
+      requestedFollowUp: ["Obtain accessible primary materials and independent verification."],
+    })),
+    committee: Array.from({ length: 4 }, (_, index) => ({
+      id: `committee-${index + 1}`,
+      role: index === 3 ? "Committee chair" : `Committee member ${index + 1}`,
+      stance: "neutral" as const,
+      statement: "Sitemap metadata alone cannot support an investment conclusion.",
+      evidenceIds: [],
+      isDissent: false,
+    })),
+    verdict: {
+      recommendation: "Insufficient Evidence",
+      conviction: 0,
+      confidence: 0,
+      evidenceCoverage: 0,
+      summary: "Direct page content was blocked and sitemap metadata cannot support an investment recommendation.",
+      keyReasons: ["Only first-party URL catalog metadata was accessible."],
+      dissent: "No supported dissent can be formed from sitemap metadata alone.",
+      conditions: ["Obtain accessible first-party and independent evidence."],
+      unansweredQuestions: ["What does the company sell, and with what verified traction?"],
+    },
+    scores: scoreTemplates.map((label, index) => ({
+      id: `score-${index + 1}`,
+      label,
+      score: 50,
+      confidence: 0,
+      evidenceCoverage: 0,
+      supportingFactors: [],
+      opposingFactors: ["Substantive evidence was inaccessible."],
+      assumptions: ["No directional score is supportable."],
+    })),
+    probabilities: probabilityTemplates.map((label, index) => ({
+      id: `probability-${index + 1}`,
+      label,
+      range: "Unknown",
+      horizon: "Unknown",
+      confidence: "low" as const,
+      basis: "Sitemap metadata is insufficient for probability analysis.",
+      assumptions: ["Operating evidence is unavailable."],
+      movers: ["Accessible verified evidence"],
+    })),
+    memo: {
+      title: `${name} evidence-limited investment memo`,
+      executiveSummary: "Insufficient Evidence.",
+      thesis: "No investable thesis can be formed from sitemap metadata alone.",
+      sections: [{ id: "evidence", title: "Evidence available", body: "Only first-party sitemap catalog metadata was accessible.", evidenceIds: [] }],
+      methodology: "Bounded first-party sitemap review only.",
+      changeLog: [],
+    },
+    warnings: [],
+  });
+}
 
 function normalizeIntelligence(packet: z.infer<typeof ProviderIntelligencePacketSchema>) {
   const agents = agentTemplates.map(([id, role, stage], index) => {
@@ -309,23 +390,42 @@ function finalizeAnalysis(
     verdict: parsed.verdict,
     scores: parsed.scores,
     probabilities: parsed.probabilities,
-    memo: { ...parsed.memo, generatedAt: now, model },
+    memo: {
+      ...parsed.memo,
+      sections: parsed.memo.sections.map((section) => ({
+        ...section,
+        evidenceIds: section.evidenceIds.filter((id) => validEvidence.has(id)),
+      })),
+      generatedAt: now,
+      model,
+    },
     scenarios: [],
     warnings: [...warnings, ...parsed.warnings, "Structured model judgment only; not investment advice."],
   });
 }
 
-export async function analyzeSources(canonicalUrl: string, sources: SourceDocument[], crawlWarnings: string[] = []): Promise<InvestigationRun> {
+export async function analyzeSources(canonicalUrl: string, sources: SourceDocument[], crawlWarnings: string[] = [], signal?: AbortSignal): Promise<InvestigationRun> {
   const corpus = safeCorpus(sources);
   const model = cerebrasModel();
   const now = new Date().toISOString();
   const sharedInput = `Analyze the following bounded evidence corpus for ${canonicalUrl}.
-The analyzedAt and memo generatedAt values must be ${now}. Use ${canonicalUrl} as the profile URL.
 Use Unknown for undiscovered fields and keep every text field concise.
 
 BEGIN UNTRUSTED SOURCE DATA
 ${JSON.stringify(corpus)}
 END UNTRUSTED SOURCE DATA`;
+
+  if (sources.length > 0 && sources.every((source) => source.sourceType === "First-party sitemap catalog")) {
+    return finalizeAnalysis(
+      sitemapOnlySkeleton(canonicalUrl),
+      canonicalUrl,
+      sources,
+      corpus.map((item) => ({ id: item.evidenceId, sourceId: item.sourceId, title: item.title, url: item.url, sourceType: item.sourceType, excerpt: item.untrustedText, reliability: item.reliability })),
+      `Cerebras ${model} (not invoked)`,
+      now,
+      ["SITEMAP-ONLY LIVE ANALYSIS: Direct page content was unavailable; deterministic evidence constraints were applied without model synthesis.", ...crawlWarnings],
+    );
+  }
 
   const [intelligence, decision, memo] = await Promise.all([
     callCerebrasStructured({
@@ -334,6 +434,7 @@ END UNTRUSTED SOURCE DATA`;
       system: SYSTEM_INSTRUCTIONS,
       user: `${sharedInput}\nReturn exactly 13 specialist agents covering discovery, product, founders, technology, market, competition, customers, business model, momentum, risk, bull, bear, and committee. Each agent has one finding, one or two evidence-specific unknowns, and at most two items in every other list.`,
       maxCompletionTokens: 5_500,
+      signal,
     }),
     callCerebrasStructured({
       name: "startup_signal_decision",
@@ -341,13 +442,15 @@ END UNTRUSTED SOURCE DATA`;
       system: SYSTEM_INSTRUCTIONS,
       user: `${sharedInput}\nReturn exactly 4 committee statements with explicit disagreement where warranted, 8 score dimensions, and 3 probability scenarios.`,
       maxCompletionTokens: 3_500,
+      signal,
     }),
     callCerebrasStructured({
       name: "startup_signal_memo",
       validator: MemoPacketSchema,
       system: SYSTEM_INSTRUCTIONS,
-      user: `${sharedInput}\nReturn a decision-ready memo with exactly 6 sections under 80 words each. Use ${model} as the model field.`,
+      user: `${sharedInput}\nReturn a decision-ready memo with exactly 6 sections under 80 words each.`,
       maxCompletionTokens: 2_500,
+      signal,
     }),
   ]);
 
@@ -367,12 +470,15 @@ END UNTRUSTED SOURCE DATA`;
   );
 }
 
-export async function analyzeScenario(run: InvestigationRun, scenario: string) {
+export async function analyzeScenario(run: InvestigationRun, scenario: string, signal?: AbortSignal) {
   return callCerebrasStructured({
     name: "startup_signal_scenario",
     validator: ScenarioUpdateSchema,
     system: `${SYSTEM_INSTRUCTIONS}\nApply a counterfactual to the existing validated verdict. Do not add new evidence or treat the scenario as fact.`,
     user: JSON.stringify({ scenario, verdict: run.verdict, scores: run.scores, probabilities: run.probabilities, thesis: run.memo.thesis, evidenceIds: run.evidence.map((item) => item.id) }),
     maxCompletionTokens: 3_000,
+    signal,
+    primaryTimeoutMs: 18_000,
+    repairTimeoutMs: 8_000,
   });
 }

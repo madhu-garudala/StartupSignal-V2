@@ -1,4 +1,4 @@
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 import { resolve4, resolve6 } from "node:dns/promises";
 
 const blockedHostnames = new Set([
@@ -8,6 +8,12 @@ const blockedHostnames = new Set([
   "metadata.internal",
   "instance-data.ec2.internal",
 ]);
+
+const blockedIpv6 = new BlockList();
+for (const [network, prefix] of [
+  ["::", 128], ["::1", 128], ["fc00::", 7], ["fe80::", 10], ["fec0::", 10],
+  ["ff00::", 8], ["2001:db8::", 32], ["64:ff9b::", 96], ["2002::", 16], ["2001::", 32],
+] as const) blockedIpv6.addSubnet(network, prefix, "ipv6");
 
 export class UrlSecurityError extends Error {
   constructor(message: string) {
@@ -38,10 +44,7 @@ function isBlockedIpv4(address: string) {
 
 function isBlockedIpv6(address: string) {
   const normalized = address.toLowerCase().split("%")[0];
-  if (normalized === "::" || normalized === "::1") return true;
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
-  if (/^fe[89ab]/.test(normalized)) return true;
-  if (normalized.startsWith("ff") || normalized.startsWith("2001:db8:")) return true;
+  if (blockedIpv6.check(normalized, "ipv6")) return true;
   const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
   if (mapped) return isBlockedIpv4(mapped);
   const mappedHex = normalized.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
@@ -59,6 +62,8 @@ export function isPrivateAddress(address: string) {
   if (version === 6) return isBlockedIpv6(address);
   return true;
 }
+
+export type PublicAddress = { address: string; family: 4 | 6 };
 
 export function normalizePublicUrl(input: string) {
   const trimmed = input.trim();
@@ -85,7 +90,7 @@ export function normalizePublicUrl(input: string) {
   return url;
 }
 
-export async function assertPublicDestination(
+export async function resolvePublicDestination(
   url: URL,
   resolver: (hostname: string) => Promise<string[]> = async (hostname) => {
     const [v4, v6] = await Promise.all([
@@ -98,10 +103,18 @@ export async function assertPublicDestination(
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
   if (isIP(hostname)) {
     if (isPrivateAddress(hostname)) throw new UrlSecurityError("Destination resolves to a blocked address.");
-    return;
+    return [{ address: hostname, family: isIP(hostname) as 4 | 6 }];
   }
 
   const addresses = await resolver(hostname);
   if (addresses.length === 0) throw new UrlSecurityError("The website hostname could not be resolved.");
   if (addresses.some(isPrivateAddress)) throw new UrlSecurityError("The website resolves to a private or reserved network address.");
+  return addresses.map((address) => ({ address, family: isIP(address) as 4 | 6 }));
+}
+
+export async function assertPublicDestination(
+  url: URL,
+  resolver?: (hostname: string) => Promise<string[]>,
+) {
+  await resolvePublicDestination(url, resolver);
 }

@@ -5,6 +5,8 @@ import type { ZodType } from "zod";
 import { cerebrasJsonSchema, extractJsonObject } from "@/lib/ai/cerebras-schema";
 
 const DEFAULT_MODEL = "gemma-4-31b";
+const PRIMARY_TIMEOUT_MS = 22_000;
+const REPAIR_TIMEOUT_MS = 14_000;
 let cachedClient: Cerebras | null = null;
 
 export function cerebrasModel() {
@@ -14,7 +16,7 @@ export function cerebrasModel() {
 function client() {
   const apiKey = process.env.CEREBRAS_API_KEY;
   if (!apiKey) throw new Error("Live analysis requires CEREBRAS_API_KEY. Demo mode works without it.");
-  if (!cachedClient) cachedClient = new Cerebras({ apiKey, timeout: 50_000, maxRetries: 0 });
+  if (!cachedClient) cachedClient = new Cerebras({ apiKey, timeout: PRIMARY_TIMEOUT_MS, maxRetries: 0 });
   return cachedClient;
 }
 
@@ -38,6 +40,9 @@ type StructuredRequest<T> = {
   system: string;
   user: string;
   maxCompletionTokens: number;
+  signal?: AbortSignal;
+  primaryTimeoutMs?: number;
+  repairTimeoutMs?: number;
 };
 
 export async function callCerebrasStructured<T>({
@@ -46,6 +51,9 @@ export async function callCerebrasStructured<T>({
   system,
   user,
   maxCompletionTokens,
+  signal,
+  primaryTimeoutMs = PRIMARY_TIMEOUT_MS,
+  repairTimeoutMs = REPAIR_TIMEOUT_MS,
 }: StructuredRequest<T>): Promise<T> {
   const schema = cerebrasJsonSchema(validator);
   const base = {
@@ -62,23 +70,26 @@ export async function callCerebrasStructured<T>({
       { role: "system", content: system },
       { role: "user", content: user },
     ],
-  });
+  }, { signal, timeout: primaryTimeoutMs });
   let raw = responseContent(response);
   let parsed = parseResponse(raw, validator);
   if (parsed.success) return parsed.data;
+  const repairContext = parsed.error.issues.slice(0, 3)
+    .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
+    .join("; ");
 
   response = await client().chat.completions.create({
     ...base,
-    temperature: 0.35,
+    temperature: 0.1,
     response_format: { type: "json_schema" as const, json_schema: { name, strict: false, schema } },
     messages: [
       {
         role: "system",
-        content: `${system}\nReturn only compact JSON matching the schema. Do not emit markdown or repeat keys.`,
+        content: `${system}\nThe previous response failed validation (${repairContext}). Return corrected compact JSON only. Do not emit markdown or repeat keys.`,
       },
       { role: "user", content: user },
     ],
-  });
+  }, { signal, timeout: repairTimeoutMs });
   raw = responseContent(response);
   parsed = parseResponse(raw, validator);
   if (!parsed.success) {
