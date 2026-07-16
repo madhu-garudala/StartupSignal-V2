@@ -15,20 +15,21 @@ Purpose: a complete, deliberately over-stuffed presentation kit: narrative, slid
 - **Section 8** lists concrete numbers and phrases worth quoting verbatim.
 
 **One-sentence pitch to memorize:**
-> "StartupSignal turns any startup URL into an evidence-backed venture investigation — a committee of AI specialists that shows its sources, admits what it doesn't know, and lets you stress-test its verdict."
+> "StartupSignal turns any startup name or website into an evidence-backed venture investigation — a committee of AI specialists that shows its sources, admits what it doesn't know, and lets you stress-test its verdict."
 
 ---
 
 ## 1. WHAT it is
 
-StartupSignal V2 is a Next.js web application that takes a single input — a startup's website URL — and produces:
+StartupSignal V2 is a Next.js web application that takes a single input — a startup name or website — resolves names to a validated official domain, and produces:
 
 1. **A bounded evidence corpus** — up to 4 directly crawled pages from the company site plus up to 6 indexed sources from Tavily search (first-party and independent), every one URL-validated, byte-capped, and provenance-labeled.
 2. **13 specialist agent reports** — discovery, product, founders, technology, market, competition, customers, business model, momentum, risk, bull case, bear case, and a committee chair. Each report carries findings, typed claims, risks, explicit unknowns, and a confidence score.
 3. **An investment committee verdict** — 4 committee statements with preserved dissent, a recommendation on a 6-point scale (Strong Invest → Strong Pass, plus *Insufficient Evidence*), conviction/confidence/coverage percentages, 8 scored dimensions, and 3 probability scenarios with ranges and horizons.
-4. **A living investment memo** — a printable IC memorandum with an executive summary, thesis, 6 evidence-cited sections, a methodology footer, and a change log that grows as you run counterfactuals.
-5. **A counterfactual lab** — "assume a major platform launches a competing product" → the committee recomputes the verdict without inventing new evidence, and the memo logs the change.
-6. **A research channel** — a contextual chat bound to the active company. Every question triggers fresh question-specific retrieval, and every answer returns confidence, assumptions, unknowns, cited evidence, and (for forecast questions) an explicit probability range with a horizon and basis.
+4. **A valuation snapshot** — the latest explicitly supported private-company valuation, its date, reporting status, context, and source. Missing or weak public evidence renders as *Unknown*, never an invented estimate.
+5. **A living investment memo** — a printable IC memorandum with an executive summary, thesis, 6 evidence-cited sections, a methodology footer, and a change log that grows as you run counterfactuals.
+6. **A counterfactual lab** — "assume a major platform launches a competing product" → the committee recomputes the verdict without inventing new evidence, and the memo logs the change.
+7. **A research channel** — a contextual chat bound to the active company. Every question triggers fresh question-specific retrieval, and every answer returns confidence, assumptions, unknowns, cited evidence, and (for forecast questions) an explicit probability range with a horizon and basis.
 
 It ships with two modes:
 - **Demo mode** — a deterministic, explicitly fictional company ("Heliograph") with zero API keys and zero network calls. Same UI, same data contract.
@@ -103,7 +104,7 @@ Structure this as "constraints first, then architecture followed."
 ## 4. Slide-by-slide outline (with speaker notes)
 
 ### Slide 1 — Title ⏱ short version
-**"StartupSignal — Turn any startup URL into an evidence-backed investigation."**
+**"StartupSignal — Turn any startup name or website into an evidence-backed investigation."**
 Sub: An AI investment committee that cites sources, preserves dissent, and admits what it doesn't know.
 *Notes:* Open with the problem in one breath: "Early-stage diligence is hours of tab-hopping, and asking a chatbot gets you confident fiction. I built the middle path."
 
@@ -174,7 +175,7 @@ Repeat the one-liner. End on the philosophy: **"The product's job is not to be r
 **Setup beforehand:** dev server running, `.env.local` loaded, one live run *pre-completed in another tab* as a fallback, browser zoomed for projection.
 
 1. **Landing (15s).** Read the headline. Point at the two paths: real URL vs. fictional demo.
-2. **Start a live run (30s).** Paste a real, crawl-friendly startup URL. As it starts: "The server just validated this URL against private networks and cloud metadata endpoints — this app is an SSRF machine unless you engineer otherwise."
+2. **Start a live run (30s).** Enter a startup name or paste a real, crawl-friendly website. For a name, point out the resolved domain. As it starts: "The server resolves the company identity, then validates the website against private networks and cloud metadata endpoints — this app is an SSRF machine unless you engineer otherwise."
 3. **Narrate the stream (60s).** Pipeline stages lighting up; evidence rail filling ("each card is a validated URL with a reliability grade and a bounded excerpt"); active-agent mandate view; committee statements arriving — find a dissent if one appears.
 4. **Verdict tab (45s).** Recommendation + conviction/confidence/coverage meters. Point at "RANGES, NOT FORECASTS" and the preserved-dissent block. "The schema forces the model to tell you what would change its mind."
 5. **Stress test (45s).** Run "Assume growth stalls for twelve months." Show deltas and the memo change log entry. "No new evidence invented — the committee recomputed under an assumption layer."
@@ -329,7 +330,7 @@ These diagrams are intentionally presentation-sized. Use one per slide; do not p
 
 ```mermaid
 flowchart LR
-  U[User pastes startup URL] --> W[React investigation workspace]
+  U[User enters startup name or URL] --> W[React investigation workspace]
   W -->|NDJSON| A[POST /api/analyze]
   W -->|question + active run| C[POST /api/chat]
   W -->|counterfactual + active run| S[POST /api/scenario]
@@ -540,7 +541,7 @@ This section gives you a chronological story when someone asks how you went from
 
 ### Phase 1 — Define the product promise
 
-The product promise was intentionally narrow: paste a startup URL and receive a decision-ready, evidence-backed investigation. The goal was not to reproduce a full venture operating system. The goal was one reliable vertical slice that felt complete.
+The product promise was intentionally narrow: enter a startup name or website and receive a decision-ready, evidence-backed investigation. Plain names are resolved through a bounded, deterministic official-site search before the existing URL security boundary. The goal was not to reproduce a full venture operating system. The goal was one reliable vertical slice that felt complete.
 
 The first design decision followed immediately: the home screen should be the actual tool, not a marketing page. The URL field is the central object. Submitting it transforms the entire interface into an investigation workspace.
 
@@ -863,7 +864,7 @@ Authentication, persisted and immutable evidence snapshots, run-level authorizat
 
 ### Memorize these five points
 
-1. **What:** one startup URL becomes an evidence-backed investment investigation and memo.
+1. **What:** one startup name or website becomes an evidence-backed investment investigation and memo.
 2. **Why:** raw chat is fast but not reliably traceable; manual diligence is traceable but slow.
 3. **How:** bounded retrieval, three concurrent structured model packets, deterministic validation and assembly.
 4. **Trust:** fetched content and model output are both treated as untrusted.
@@ -885,7 +886,7 @@ Authentication, persisted and immutable evidence snapshots, run-level authorizat
 
 ### Best 30-second version
 
-> "StartupSignal turns a startup URL into an evidence-backed diligence workspace. A bounded crawler and Tavily assemble first-party and independent sources; thirteen specialist roles analyze the same corpus; a committee preserves disagreement and produces a structured verdict, probability ranges, and a living memo. Every provider output is schema-validated, every citation is checked, and thin evidence produces Insufficient Evidence instead of confident invention. Cerebras makes the three-packet synthesis fast enough to feel interactive."
+> "StartupSignal turns a startup name or website into an evidence-backed diligence workspace. Tavily resolves plain names to a validated official domain, then a bounded crawler and search assemble first-party and independent sources; thirteen specialist roles analyze the same corpus; a committee preserves disagreement and produces a structured verdict, probability ranges, and a living memo. Every provider output is schema-validated, every citation is checked, and thin evidence produces Insufficient Evidence instead of confident invention. Cerebras makes the three-packet synthesis fast enough to feel interactive."
 
 ### Best final sentence
 

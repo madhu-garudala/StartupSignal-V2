@@ -3,6 +3,7 @@ import "server-only";
 import Cerebras from "@cerebras/cerebras_cloud_sdk";
 import type { ZodType } from "zod";
 import { cerebrasJsonSchema, extractJsonObject } from "@/lib/ai/cerebras-schema";
+import { withTransientProviderRetry } from "@/lib/ai/provider-retry";
 
 const DEFAULT_MODEL = "gemma-4-31b";
 const PRIMARY_TIMEOUT_MS = 22_000;
@@ -32,6 +33,32 @@ function responseContent(response: unknown) {
   const content = (response as { choices?: Array<{ message?: { content?: unknown } }> }).choices?.[0]?.message?.content;
   if (typeof content !== "string") throw new Error("Cerebras returned no analysis content.");
   return content;
+}
+
+function friendlyProviderError(error: unknown): never {
+  const status = (error as { status?: number } | null)?.status;
+  if (status === 429) {
+    throw new Error("Cerebras is temporarily at capacity. Please retry the investigation in a moment.");
+  }
+  if (typeof status === "number" && status >= 500) {
+    throw new Error("Cerebras is temporarily unavailable. Please retry the investigation shortly.");
+  }
+  throw error;
+}
+
+async function createCompletion(
+  parameters: Parameters<ReturnType<typeof client>["chat"]["completions"]["create"]>[0],
+  signal: AbortSignal | undefined,
+  timeout: number,
+) {
+  try {
+    return await withTransientProviderRetry(
+      () => client().chat.completions.create(parameters, { signal, timeout }),
+      { signal },
+    );
+  } catch (error) {
+    return friendlyProviderError(error);
+  }
 }
 
 type StructuredRequest<T> = {
@@ -64,13 +91,13 @@ export async function callCerebrasStructured<T>({
     response_format: { type: "json_schema" as const, json_schema: { name, strict: true, schema } },
   };
 
-  let response = await client().chat.completions.create({
+  let response = await createCompletion({
     ...base,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
     ],
-  }, { signal, timeout: primaryTimeoutMs });
+  }, signal, primaryTimeoutMs);
   let raw = responseContent(response);
   let parsed = parseResponse(raw, validator);
   if (parsed.success) return parsed.data;
@@ -78,7 +105,7 @@ export async function callCerebrasStructured<T>({
     .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
     .join("; ");
 
-  response = await client().chat.completions.create({
+  response = await createCompletion({
     ...base,
     temperature: 0.1,
     response_format: { type: "json_schema" as const, json_schema: { name, strict: false, schema } },
@@ -89,7 +116,7 @@ export async function callCerebrasStructured<T>({
       },
       { role: "user", content: user },
     ],
-  }, { signal, timeout: repairTimeoutMs });
+  }, signal, repairTimeoutMs);
   raw = responseContent(response);
   parsed = parseResponse(raw, validator);
   if (!parsed.success) {

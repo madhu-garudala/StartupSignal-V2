@@ -37,7 +37,7 @@ export function Landing({ url, setUrl, error, onAnalyze, onDemo }: Props) {
           <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .55 }}>
             <div className="mono mb-5 text-[10px] uppercase text-[#9aa8ae]">Autonomous venture diligence // evidence protocol active</div>
             <h1 className="text-balance mx-auto max-w-[900px] text-5xl font-semibold leading-[1.02] tracking-normal text-white md:text-7xl">
-              Turn any startup URL into investment conviction.
+              Turn any startup name or URL into investment conviction.
             </h1>
             <p className="text-balance mx-auto mt-6 max-w-[720px] text-base leading-7 text-[#aab4b9] md:text-lg">
               StartupSignal investigates founders, product, market, technology, competition, momentum, and risk, then convenes an AI investment committee around the evidence.
@@ -46,16 +46,16 @@ export function Landing({ url, setUrl, error, onAnalyze, onDemo }: Props) {
 
           <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .15, duration: .55 }} className="mt-10 w-full max-w-[760px]">
             <div className="glass flex flex-col gap-2 border border-[#374147] p-2 shadow-[0_20px_80px_rgba(0,0,0,.5),0_0_40px_rgba(107,230,239,.05)] sm:flex-row">
-              <label className="sr-only" htmlFor="startup-url">Startup website URL</label>
+              <label className="sr-only" htmlFor="startup-query">Startup name or website</label>
               <input
-                id="startup-url"
-                type="url"
+                id="startup-query"
+                type="text"
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 onKeyDown={(event) => event.key === "Enter" && url.trim() && onAnalyze()}
-                placeholder="https://example-startup.com"
+                placeholder="OpenAI or https://openai.com"
                 className="focus-ring h-14 min-w-0 flex-1 bg-transparent px-4 text-base text-white outline-none placeholder:text-[#667178]"
-                autoComplete="url"
+                autoComplete="organization"
               />
               <button onClick={onAnalyze} disabled={!url.trim()} className="focus-ring flex h-14 items-center justify-center gap-2 bg-[#eaf9fa] px-6 text-sm font-bold text-[#071012] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40">
                 Analyze startup <ArrowRight size={17} />

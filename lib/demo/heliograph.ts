@@ -13,6 +13,7 @@ const sources = [
   { id: "src-market", title: "Commercial retrofit market note", url: `${demoBase}/market-note`, sourceType: "Demo research note", excerpt: "Portfolio owners face energy-price pressure and disclosure mandates, while retrofit execution remains fragmented across auditors, controls vendors, and contractors.", fetchedAt: analyzedAt, reliability: "medium" as const, isDemo: true },
   { id: "src-careers", title: "Open roles", url: `${demoBase}/careers`, sourceType: "Careers page", excerpt: "Open roles include controls integration, energy modeling, enterprise implementation, and the first channel partnerships lead.", fetchedAt: analyzedAt, reliability: "high" as const, isDemo: true },
   { id: "src-competition", title: "Competitive product review", url: `${demoBase}/competition`, sourceType: "Demo analyst comparison", excerpt: "Incumbent energy-management suites emphasize monitoring; audit firms deliver bespoke projects; newer optimization tools compete on automation and speed to verified savings.", fetchedAt: analyzedAt, reliability: "medium" as const, isDemo: true },
+  { id: "src-financing", title: "Seed financing announcement", url: `${demoBase}/financing`, sourceType: "Demo financing announcement", excerpt: "Heliograph's fictional May 2026 seed financing valued the company at $48 million post-money. This figure exists only for the deterministic demo.", fetchedAt: analyzedAt, reliability: "medium" as const, isDemo: true },
 ] satisfies InvestigationRun["sources"];
 
 const evidence = sources.map((source, index) => ({
@@ -33,6 +34,7 @@ const evidence = sources.map((source, index) => ({
     ["market", "bull"],
     ["momentum", "business"],
     ["competition", "risk"],
+    ["discovery", "committee"],
   ][index],
   supports: [
     ["Clear workflow from telemetry to prioritized action"],
@@ -44,6 +46,7 @@ const evidence = sources.map((source, index) => ({
     ["Regulation and energy economics support category timing"],
     ["Hiring is concentrated on implementation capacity and channel distribution"],
     ["The market includes credible suites, services, and automation challengers"],
+    ["Fictional demo valuation was reported at $48 million post-money"],
   ][index],
   discoveredAt: new Date(Date.parse(analyzedAt) + index * 11000).toISOString(),
   isDemo: true,
@@ -100,6 +103,13 @@ const heliographWithScenarios: InvestigationRun = InvestigationRunSchema.parse({
     stageInferred: true,
     location: "Chicago, IL",
     founders: ["Maya Chen", "Leon Okafor"],
+    valuation: {
+      amount: "$48M post-money",
+      status: "reported",
+      asOf: "May 2026",
+      context: "Fictional seed financing valuation included only to exercise the product UI.",
+      evidenceIds: ["ev-10"],
+    },
     analyzedAt,
     faviconUrl: null,
   },

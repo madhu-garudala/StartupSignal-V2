@@ -6,7 +6,7 @@ import { AnalysisRequestSchema, InvestigationRunSchema, type InvestigationRun } 
 import { checkRateLimit, requestClientKey } from "@/lib/security/rate-limit";
 import { assertPublicDestination, normalizePublicUrl, UrlSecurityError } from "@/lib/security/url";
 import { sourceKey } from "@/lib/search/tavily-contract";
-import { searchCompanyEvidence } from "@/lib/search/tavily";
+import { resolveStartupWebsite, searchCompanyEvidence } from "@/lib/search/tavily";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const ip = requestClientKey(request);
   if (!checkRateLimit(ip).allowed) return Response.json({ error: "Too many investigations. Try again in a minute." }, { status: 429 });
   const body = AnalysisRequestSchema.safeParse(await request.json().catch(() => null));
-  if (!body.success) return Response.json({ error: "A valid URL and analysis mode are required." }, { status: 400 });
+  if (!body.success) return Response.json({ error: "A valid startup name or website and analysis mode are required." }, { status: 400 });
 
   const lifecycle = new AbortController();
   const deadline = setTimeout(() => {
@@ -56,9 +56,13 @@ export async function POST(request: Request) {
           for (const statement of heliographDemo.committee.slice(4)) send({ type: "committee", statementId: statement.id, statement });
           send({ type: "complete", run: heliographDemo });
         } else {
-          send({ type: "stage", stageId: "discovery", status: "running", message: "Validating destination and robots policy" });
-          const submitted = normalizePublicUrl(body.data.url);
+          send({ type: "stage", stageId: "discovery", status: "running", message: "Resolving company identity and validating the destination" });
+          const resolution = await resolveStartupWebsite(body.data.url, lifecycle.signal);
+          const submitted = normalizePublicUrl(resolution.url.toString());
           await assertPublicDestination(submitted);
+          if (resolution.warnings.length) {
+            send({ type: "stage", stageId: "discovery", status: "running", message: `Resolved startup name to ${submitted.hostname}` });
+          }
           send({ type: "stage", stageId: "market", status: "running", message: "Searching bounded first-party and independent evidence" });
           const [crawlAttempt, searchAttempt] = await Promise.allSettled([
             crawlCompany(submitted.toString(), lifecycle.signal),
@@ -109,7 +113,12 @@ export async function POST(request: Request) {
           const run: InvestigationRun = InvestigationRunSchema.parse(await analyzeSources(
             canonicalUrl,
             sources,
-            [...crawlWarnings, ...searched.warnings, ...(sitemapOnly ? ["Only sitemap metadata was recovered; deterministic evidence constraints apply."] : [])],
+            [
+              ...crawlWarnings,
+              ...searched.warnings,
+              ...resolution.warnings,
+              ...(sitemapOnly ? ["Only sitemap metadata was recovered; deterministic evidence constraints apply."] : []),
+            ],
             lifecycle.signal,
           ));
           for (const item of run.evidence) send({ type: "evidence", evidenceId: item.id, evidence: item });

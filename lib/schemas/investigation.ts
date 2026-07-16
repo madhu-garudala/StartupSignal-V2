@@ -10,6 +10,14 @@ export const ClaimTypeSchema = z.enum([
 
 export const ReliabilitySchema = z.enum(["high", "medium", "low"]);
 
+export const ValuationSnapshotSchema = z.object({
+  amount: z.string().min(1),
+  status: z.enum(["reported", "estimated", "unknown"]),
+  asOf: z.string().min(1),
+  context: z.string().min(1),
+  evidenceIds: z.array(z.string()),
+});
+
 export const CompanyProfileSchema = z.object({
   name: z.string().min(1),
   domain: z.string().min(1),
@@ -20,6 +28,7 @@ export const CompanyProfileSchema = z.object({
   stageInferred: z.boolean(),
   location: z.string().min(1),
   founders: z.array(z.string()),
+  valuation: ValuationSnapshotSchema,
   analyzedAt: z.string(),
   faviconUrl: z.url().nullable(),
 });
@@ -183,6 +192,7 @@ export const ScenarioRequestSchema = z.object({
 });
 
 export type CompanyProfile = z.infer<typeof CompanyProfileSchema>;
+export type ValuationSnapshot = z.infer<typeof ValuationSnapshotSchema>;
 export type SourceDocument = z.infer<typeof SourceDocumentSchema>;
 export type EvidenceItem = z.infer<typeof EvidenceItemSchema>;
 export type Claim = z.infer<typeof ClaimSchema>;

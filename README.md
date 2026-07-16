@@ -1,6 +1,6 @@
 # StartupSignal V2
 
-StartupSignal turns a startup URL into an evidence-backed venture investigation, specialist-agent findings, a committee verdict, scenario stress tests, a living investment memo, and a contextual research channel. V2 preserves the original product experience while moving live synthesis to Cerebras for lower-latency model inference.
+StartupSignal turns a startup name or website into an evidence-backed venture investigation, specialist-agent findings, a supported valuation snapshot, a committee verdict, scenario stress tests, a living investment memo, and a contextual research channel. V2 preserves the original product experience while moving live synthesis to Cerebras for lower-latency model inference.
 
 The application has two paths:
 
@@ -40,7 +40,7 @@ CEREBRAS_MODEL=gemma-4-31b
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-`CEREBRAS_API_KEY` is required for live synthesis. `TAVILY_API_KEY` is recommended for indexed first-party and independent evidence; without it, the app falls back to direct crawling and sitemap metadata. `CEREBRAS_MODEL` overrides the default. `NEXT_PUBLIC_APP_URL` is optional because Vercel's system URL is detected automatically. API keys are read only by server route code and are never sent to the browser.
+`CEREBRAS_API_KEY` is required for live synthesis. `TAVILY_API_KEY` is required when the input is a startup name and recommended for indexed first-party and independent evidence; without it, users must enter a website and the app falls back to direct crawling and sitemap metadata. `CEREBRAS_MODEL` overrides the default. `NEXT_PUBLIC_APP_URL` is optional because Vercel's system URL is detected automatically. API keys are read only by server route code and are never sent to the browser.
 
 ## Verification
 
@@ -84,6 +84,10 @@ The crawler accepts only HTTP/S, removes credentials and fragments, limits ports
 Fetched content is untrusted data, never model instruction. Cerebras receives explicit instruction hierarchy and only the bounded corpus. For substantive corpora, three strict JSON Schema packets run concurrently, each stays under Cerebras's 5,000-character schema limit, and all are revalidated with Zod before the UI sees a result. Server-owned URL, timestamp, and model fields are injected after validation. A single time-bounded repair attempt handles malformed provider output.
 
 Tavily runs two deterministic searches: one restricted to the submitted domain and one for independent evidence with social/UGC domains excluded. Returned URLs are normalized, checked for public DNS destinations, deduplicated, capped at six, and optionally extracted into query-focused chunks. Search and extraction responses are Zod-validated and remain explicitly untrusted.
+
+Binary office documents, low-information extraction output, and independent results that do not mention the active company are removed before synthesis. The profile includes the latest explicit valuation supported by the corpus, with reporting status, date, context, and evidence IDs. If no defensible figure is present, the UI displays `Unknown`.
+
+For startup-name inputs, Tavily performs one bounded official-site lookup before investigation. Deterministic scoring favors matching company domains and titles, excludes directories and social platforms, and rejects ambiguous results. The selected origin still passes the same URL normalization, public-DNS validation, and connection-pinned crawling controls as a directly entered website.
 
 When a homepage returns HTTP 403 or 429, publicly accessible same-origin XML sitemaps remain a metadata fallback while Tavily attempts to recover substantive first-party and independent evidence. If Tavily also returns no evidence, a deterministic sitemap-only path returns `Insufficient Evidence` without invoking Cerebras.
 

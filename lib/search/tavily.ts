@@ -1,12 +1,18 @@
 import "server-only";
 
 import type { ZodType } from "zod";
+import { withTransientProviderRetry } from "@/lib/ai/provider-retry";
 import type { SourceDocument } from "@/lib/schemas/investigation";
 import { assertPublicDestination, normalizePublicUrl } from "@/lib/security/url";
 import {
   baseHostname,
   cleanTavilyContent,
+  evidenceMentionsCompany,
   isSameSite,
+  isSupportedEvidenceUrl,
+  isUsefulEvidenceText,
+  looksLikeWebsiteInput,
+  rankOfficialWebsiteCandidates,
   sourceKey,
   TavilyExtractResponseSchema,
   TavilySearchResponseSchema,
@@ -20,20 +26,99 @@ const MAX_SEARCH_SOURCES = 6;
 const MAX_EXCERPT_CHARACTERS = 4_000;
 type SearchCandidate = TavilySearchResult & { scope: "first-party" | "independent" };
 
-async function tavilyRequest<T>(endpoint: string, body: Record<string, unknown>, schema: ZodType<T>, externalSignal?: AbortSignal): Promise<T> {
+async function tavilyRequest<T>(
+  endpoint: string,
+  body: Record<string, unknown>,
+  schema: ZodType<T>,
+  externalSignal?: AbortSignal,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) throw new Error("TAVILY_API_KEY is not configured.");
-  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const signal = externalSignal ? AbortSignal.any([externalSignal, timeoutSignal]) : timeoutSignal;
-  const response = await fetch(endpoint, {
+  const response = await withTransientProviderRetry(async () => {
+    const result = await fetch(endpoint, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal,
       cache: "no-store",
-  });
+    });
+    if (result.status === 429 || result.status >= 500) {
+      const error = Object.assign(new Error(`Tavily returned HTTP ${result.status}.`), {
+        status: result.status,
+        headers: { "retry-after": result.headers.get("retry-after") },
+      });
+      await result.body?.cancel().catch(() => undefined);
+      throw error;
+    }
+    return result;
+  }, { signal });
   if (!response.ok) throw new Error(`Tavily returned HTTP ${response.status}.`);
   return schema.parse(await response.json());
+}
+
+export async function resolveStartupWebsite(input: string, signal?: AbortSignal) {
+  if (looksLikeWebsiteInput(input)) {
+    return { url: normalizePublicUrl(input), warnings: [] as string[] };
+  }
+  if (!process.env.TAVILY_API_KEY) {
+    throw new Error("Startup name lookup requires TAVILY_API_KEY. Enter the company website URL instead.");
+  }
+
+  const companyName = input.replace(/\s+/g, " ").trim().slice(0, 160);
+  let response: Awaited<ReturnType<typeof tavilyRequest<typeof TavilySearchResponseSchema._output>>>;
+  try {
+    response = await tavilyRequest(TAVILY_SEARCH_URL, {
+      query: `"${companyName}" official website startup company`,
+      search_depth: "basic",
+      topic: "general",
+      max_results: 8,
+      include_answer: false,
+      include_raw_content: false,
+      include_images: false,
+      include_usage: true,
+      safe_search: true,
+      exact_match: true,
+      exclude_domains: [
+      "angel.co", "cbinsights.com", "crunchbase.com", "facebook.com",
+        "github.com", "instagram.com", "linkedin.com", "pitchbook.com", "reddit.com",
+        "reuters.com", "tiktok.com", "tracxn.com", "wikipedia.org", "x.com", "youtube.com",
+      ],
+    }, TavilySearchResponseSchema, signal, 8_000);
+  } catch (error) {
+    if ((error as { status?: number } | null)?.status === 429) {
+      throw new Error("Startup name lookup is temporarily busy. Enter the company website URL or try again shortly.");
+    }
+    throw error;
+  }
+
+  const validated = (await Promise.all(response.results.map(async (result) => {
+    try {
+      const candidate = normalizePublicUrl(result.url);
+      const origin = new URL(candidate.origin);
+      await assertPublicDestination(origin);
+      return { ...result, url: origin.toString() };
+    } catch {
+      return null;
+    }
+  }))).filter((result): result is TavilySearchResult => Boolean(result));
+  const ranked = rankOfficialWebsiteCandidates(companyName, validated);
+  const best = ranked[0];
+  const runnerUp = ranked.find((candidate) => candidate.hostname !== best?.hostname);
+  const clearMatch = best && best.confidence >= 7.5
+    && (best.exactDomain || !runnerUp || best.confidence - runnerUp.confidence >= 1);
+  if (!best || !clearMatch) {
+    throw new Error(`Could not confidently identify the official website for "${companyName}". Enter the website URL instead.`);
+  }
+
+  return {
+    url: normalizePublicUrl(best.result.url),
+    warnings: [
+      `INPUT RESOLUTION: Startup name "${companyName}" was matched to ${best.result.url}. Verify the company identity before relying on this analysis.`,
+    ],
+  };
 }
 
 async function publicCandidate(result: TavilySearchResult, submitted: URL, scope: "first-party" | "independent") {
@@ -48,7 +133,13 @@ async function publicCandidate(result: TavilySearchResult, submitted: URL, scope
   }
 }
 
-async function extractCandidates(candidates: SearchCandidate[], query: string, idPrefix: string, signal?: AbortSignal) {
+async function extractCandidates(
+  candidates: SearchCandidate[],
+  query: string,
+  idPrefix: string,
+  companyTerm: string,
+  signal?: AbortSignal,
+) {
   const warnings: string[] = [];
   const extracted = new Map<string, string>();
   try {
@@ -70,9 +161,11 @@ async function extractCandidates(candidates: SearchCandidate[], query: string, i
 
   const fetchedAt = new Date().toISOString();
   const sources: SourceDocument[] = candidates.flatMap((candidate, index) => {
+    if (!isSupportedEvidenceUrl(candidate.url)) return [];
     const rawContent = extracted.get(sourceKey(candidate.url));
     const excerpt = cleanTavilyContent(rawContent || candidate.content || "").slice(0, MAX_EXCERPT_CHARACTERS);
-    if (!excerpt) return [];
+    if (!isUsefulEvidenceText(excerpt)) return [];
+    if (candidate.scope === "independent" && !evidenceMentionsCompany(companyTerm, candidate.title, excerpt, candidate.url)) return [];
     const extractedSource = Boolean(rawContent);
     return [{
       id: `source-${idPrefix}-${index + 1}`,
@@ -144,7 +237,13 @@ export async function searchCompanyEvidence(canonicalUrl: string, signal?: Abort
     return { sources: [] as SourceDocument[], warnings: [...warnings, "TAVILY SEARCH: No validated public sources were returned."] };
   }
 
-  const extracted = await extractCandidates(unique, `${domain} company product founders customers business model traction risks`, "tavily", signal);
+  const extracted = await extractCandidates(
+    unique,
+    `${domain} company product founders customers business model traction risks`,
+    "tavily",
+    companyTerm,
+    signal,
+  );
 
   return {
     sources: extracted.sources,
@@ -208,7 +307,7 @@ export async function searchQuestionEvidence(canonicalUrl: string, question: str
     .slice(0, 4);
   if (!unique.length) return { sources: [] as SourceDocument[], warnings: [...warnings, "TAVILY CHAT SEARCH: No additional validated sources were returned."] };
 
-  const extracted = await extractCandidates(unique, `${companyTerm}: ${boundedQuestion}`, "chat", signal);
+  const extracted = await extractCandidates(unique, `${companyTerm}: ${boundedQuestion}`, "chat", companyTerm, signal);
   return {
     sources: extracted.sources,
     warnings: [...warnings, ...extracted.warnings, `TAVILY CHAT SEARCH: ${extracted.sources.length} question-specific source(s) were added.`],

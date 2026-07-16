@@ -1,6 +1,6 @@
 # StartupSignal V2 Architecture
 
-StartupSignal V2 is a Next.js App Router application that turns a company URL into a typed investment investigation. The browser renders a progressive command-center workspace. Crawling, URL security, provider access, and secrets remain in Node.js server routes. Demo and live paths converge on the same `InvestigationRun` schema.
+StartupSignal V2 is a Next.js App Router application that turns a company name or website into a typed investment investigation. Plain names are resolved to a high-confidence official website through bounded Tavily search; direct domains and URLs skip that step. The browser renders a progressive command-center workspace. Crawling, URL security, provider access, and secrets remain in Node.js server routes. Demo and live paths converge on the same `InvestigationRun` schema.
 
 ## System
 
@@ -56,13 +56,14 @@ flowchart TD
   sanitize --> output[InvestigationRun]
 ```
 
-The complete investigation schema exceeds Cerebras's 5,000-character strict-schema limit. V2 partitions it into three smaller schemas and executes them concurrently. Unsupported JSON Schema constraints are removed from the provider schema, every object is closed with `additionalProperties: false`, and the original Zod constraints remain authoritative after generation. One clean repair attempt is allowed per packet.
+The complete investigation schema exceeds Cerebras's 5,000-character strict-schema limit. V2 partitions it into three smaller schemas and executes them concurrently. Unsupported JSON Schema constraints are removed from the provider schema, every object is closed with `additionalProperties: false`, and the original Zod constraints remain authoritative after generation. The intelligence packet includes an evidence-cited valuation snapshot with an explicit unknown state. One clean repair attempt is allowed per packet.
 
 ## Trust Boundary
 
 ```mermaid
 flowchart LR
-  input[Submitted URL] --> normalize[Normalize scheme, host, port, credentials]
+  input[Submitted name or URL] --> resolve[Resolve names to likely official site]
+  resolve --> normalize[Normalize scheme, host, port, credentials]
   normalize --> dns[Resolve all addresses]
   dns --> deny{Public destination?}
   deny -->|No| reject[Reject request]

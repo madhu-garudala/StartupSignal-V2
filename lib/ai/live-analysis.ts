@@ -64,6 +64,7 @@ Security boundary:
 
 Evidence rules:
 - Never invent funding, revenue, customers, founder history, traction, location, or market statistics.
+- For valuation, use the latest explicit private-company valuation in the corpus. Label estimates as estimated. If no explicit valuation is supported, return Unknown.
 - Unknown facts must be explicitly labeled Unknown.
 - Major claims must reference supplied evidence IDs; unsupported judgments must be typed as assumptions or inferences.
 - Company-authored material is a source claim, not independently verified fact.
@@ -133,6 +134,13 @@ function sitemapOnlySkeleton(canonicalUrl: string): ParsedAnalysis {
       stageInferred: false,
       location: "Unknown",
       founders: [],
+      valuation: {
+        amount: "Unknown",
+        status: "unknown",
+        asOf: "Unknown",
+        context: "No supported valuation was available in the accessible evidence.",
+        evidenceIds: [],
+      },
     },
     agents: agentTemplates.map(([id, role, stage]) => ({
       id: `${id}-agent`,
@@ -307,6 +315,13 @@ function constrainSitemapOnlyAnalysis(parsed: ParsedAnalysis, evidenceIds: strin
       stageInferred: false,
       location: "Unknown",
       founders: [],
+      valuation: {
+        amount: "Unknown",
+        status: "unknown",
+        asOf: "Unknown",
+        context: "Sitemap metadata cannot establish a company valuation.",
+        evidenceIds: [],
+      },
     },
     agents,
     committee,
@@ -382,7 +397,17 @@ function finalizeAnalysis(
     id: `live-${crypto.randomUUID()}`,
     mode: "live",
     status: "complete",
-    profile: { ...parsed.profile, url: canonicalUrl, domain: url.hostname, analyzedAt: now, faviconUrl: null },
+    profile: {
+      ...parsed.profile,
+      valuation: {
+        ...parsed.profile.valuation,
+        evidenceIds: parsed.profile.valuation.evidenceIds.filter((id) => validEvidence.has(id)),
+      },
+      url: canonicalUrl,
+      domain: url.hostname,
+      analyzedAt: now,
+      faviconUrl: null,
+    },
     sources,
     evidence,
     agents: sanitizedAgents,

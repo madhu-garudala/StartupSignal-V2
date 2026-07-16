@@ -7,6 +7,11 @@ describe("investigation schemas", () => {
     const result = InvestigationRunSchema.safeParse(heliographDemo);
     expect(result.success).toBe(true);
     expect(heliographDemo.mode).toBe("demo");
+    expect(heliographDemo.profile.valuation).toMatchObject({
+      amount: "$48M post-money",
+      status: "reported",
+      evidenceIds: ["ev-10"],
+    });
     expect(heliographDemo.warnings.some((warning) => warning.includes("DEMO DATA"))).toBe(true);
   });
 

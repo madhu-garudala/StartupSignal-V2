@@ -72,6 +72,7 @@ export async function answerResearchQuestion(
         description: run.profile.description,
         category: run.profile.category,
         stage: run.profile.stage,
+        valuation: run.profile.valuation,
       },
       currentDate: new Date().toISOString(),
       currentInvestigation: {

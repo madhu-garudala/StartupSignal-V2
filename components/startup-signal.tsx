@@ -24,9 +24,9 @@ export function StartupSignal() {
   async function start(selectedMode: "demo" | "live") {
     if (startLock.current) return;
     const target = selectedMode === "demo" ? "https://demo.startupsignal.dev/heliograph" : url.trim();
-    if (selectedMode === "live") {
-      try { new URL(/^https?:\/\//i.test(target) ? target : `https://${target}`); }
-      catch { setError("Enter a valid startup website URL."); return; }
+    if (selectedMode === "live" && !target) {
+      setError("Enter a startup name or website.");
+      return;
     }
     startLock.current = true;
     const requestController = new AbortController();
@@ -127,6 +127,7 @@ export function StartupSignal() {
       tab={activeTab}
       setTab={setActiveTab}
       onReset={reset}
+      onRetry={() => start("live")}
       onDemo={() => start("demo")}
     />
   );

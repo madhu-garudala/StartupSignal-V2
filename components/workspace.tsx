@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowUpRight, Check, ChevronRight,
-  Circle, CircleDashed, Clock3, ExternalLink, FileText, Gauge, LoaderCircle, Network,
+  Circle, CircleDashed, CircleDollarSign, Clock3, ExternalLink, FileText, Gauge, LoaderCircle, Network,
   Play, Printer, Radar, RefreshCw, Scale, ShieldAlert, Sparkles, Target, Zap,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -11,7 +11,7 @@ import { BrandMark } from "@/components/brand-mark";
 import { ResearchChat } from "@/components/research-chat";
 import { demoScenarioPrompts } from "@/lib/demo/heliograph";
 import { pipelineStages } from "@/lib/orchestration/events";
-import { ScenarioUpdateSchema, type AgentReport, type CommitteeStatement, type EvidenceItem, type InvestigationRun } from "@/lib/schemas/investigation";
+import { ScenarioUpdateSchema, type AgentReport, type CommitteeStatement, type EvidenceItem, type InvestigationRun, type ValuationSnapshot } from "@/lib/schemas/investigation";
 
 export type StageState = { status: "queued" | "running" | "complete" | "low_evidence" | "failed"; message: string };
 export type WorkspaceTab = "investigation" | "verdict" | "scenarios" | "memo";
@@ -30,6 +30,7 @@ type Props = {
   tab: WorkspaceTab;
   setTab: (tab: WorkspaceTab) => void;
   onReset: () => void;
+  onRetry: () => void;
   onDemo: () => void;
 };
 
@@ -39,6 +40,14 @@ const tabs: { id: WorkspaceTab; label: string; icon: typeof Radar }[] = [
   { id: "scenarios", label: "Stress tests", icon: Zap },
   { id: "memo", label: "Memo", icon: FileText },
 ];
+
+const unknownValuation: ValuationSnapshot = {
+  amount: "Unknown",
+  status: "unknown",
+  asOf: "Unknown",
+  context: "No supported valuation was available in the accessible evidence.",
+  evidenceIds: [],
+};
 
 function StatusIcon({ status }: { status?: StageState["status"] }) {
   if (status === "running") return <LoaderCircle size={13} className="animate-spin text-[var(--cyan)]" />;
@@ -59,6 +68,7 @@ export function Workspace(props: Props) {
   const progress = props.run ? 100 : Math.min(92, Math.round((progressUnits / pipelineStages.length) * 100));
   const activeAgent = props.agents.at(-1);
   const canOpen = Boolean(props.run);
+  const valuation = props.run?.profile.valuation ?? unknownValuation;
 
   return (
     <main className="min-h-screen bg-[#08090a] text-white">
@@ -71,8 +81,16 @@ export function Workspace(props: Props) {
           <div className="hidden h-5 w-px bg-[#293034] lg:block" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="truncate text-xs font-semibold text-[#dce3e6]">{props.run?.profile.name || props.targetUrl}</span>
+              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-[#dce3e6]">{props.run?.profile.name || props.targetUrl}</span>
               <span className="hidden sm:inline"><ModeBadge mode={props.mode} /></span>
+              {props.run && (
+                <span
+                  className={`mono max-w-[120px] shrink-0 truncate border px-2 py-1 text-[9px] uppercase sm:max-w-[220px] ${valuation.status === "unknown" ? "border-[#3b4145] text-[#7d898f]" : "border-[#3c5b46] bg-[#101b14] text-[var(--green)]"}`}
+                  title={valuation.context}
+                >
+                  Valuation {valuation.amount}
+                </span>
+              )}
             </div>
           </div>
           <div className="hidden w-40 items-center gap-3 md:flex">
@@ -96,7 +114,14 @@ export function Workspace(props: Props) {
       {props.error && (
         <div className="no-print mx-auto mt-4 flex max-w-[1500px] items-center gap-3 border border-[#5b302e] bg-[#211313] px-4 py-3 text-sm text-[#f2a29d]">
           <ShieldAlert size={17} className="shrink-0" /><span className="flex-1">{props.error}</span>
-          {props.mode === "live" && <button onClick={props.onDemo} className="focus-ring shrink-0 border border-[#654f2f] px-3 py-1.5 text-xs text-[var(--amber)]">Open demo</button>}
+          {props.mode === "live" && (
+            <div className="flex shrink-0 gap-2">
+              <button onClick={props.onRetry} disabled={props.running} className="focus-ring flex items-center gap-1.5 border border-[#35565b] px-3 py-1.5 text-xs text-[var(--cyan)] disabled:opacity-40">
+                <RefreshCw size={12} /> Retry
+              </button>
+              <button onClick={props.onDemo} className="focus-ring border border-[#654f2f] px-3 py-1.5 text-xs text-[var(--amber)]">Open demo</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -254,6 +279,8 @@ function EvidenceRail({ evidence, mode, mobile = false }: { evidence: EvidenceIt
 }
 
 function VerdictView({ run, onMemo }: { run: InvestigationRun; onMemo: () => void }) {
+  const valuation = run.profile.valuation ?? unknownValuation;
+  const valuationEvidence = run.evidence.find((item) => valuation.evidenceIds.includes(item.id));
   return (
     <div className="mx-auto max-w-[1380px] px-4 py-7 sm:px-7">
       <section className="grid gap-6 border-b border-[#252c30] pb-8 lg:grid-cols-[1fr_330px]">
@@ -262,6 +289,25 @@ function VerdictView({ run, onMemo }: { run: InvestigationRun; onMemo: () => voi
           <h1 className="mt-5 text-4xl font-semibold text-white">{run.profile.name}</h1>
           <p className="mt-3 max-w-[780px] text-base leading-7 text-[#9ea9ae]">{run.profile.description}</p>
           <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs text-[#718087]"><span>{run.profile.category}</span><span>{run.profile.stage} {run.profile.stageInferred && "(inferred)"}</span><span>{run.profile.location}</span><span>{run.profile.founders.join(" · ") || "Founders unknown"}</span></div>
+          <div className="mt-6 flex max-w-[780px] items-start gap-4 border-y border-[#293237] py-4">
+            <div className="grid size-10 shrink-0 place-items-center border border-[#355047] bg-[#0f1813]">
+              <CircleDollarSign size={18} className={valuation.status === "unknown" ? "text-[#69767c]" : "text-[var(--green)]"} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="mono text-[9px] uppercase text-[#718087]">Latest supported valuation</div>
+              <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="text-2xl font-semibold text-white">{valuation.amount}</span>
+                <span className="text-[10px] uppercase text-[#77858b]">{valuation.status} · {valuation.asOf}</span>
+              </div>
+              <p className="mt-2 text-[11px] leading-5 text-[#87949a]">{valuation.context}</p>
+            </div>
+            {valuationEvidence && run.mode === "live" && (
+              <a href={valuationEvidence.url} target="_blank" rel="noreferrer noopener" className="focus-ring mt-1 flex shrink-0 items-center gap-1 text-[10px] text-[var(--cyan)]">
+                Source <ExternalLink size={11} />
+              </a>
+            )}
+            {valuationEvidence && run.mode === "demo" && <span className="mono mt-1 shrink-0 text-[8px] text-[var(--amber)]">DEMO EV</span>}
+          </div>
         </div>
         <div className="border-l border-[#344047] bg-[#0d1113] p-5">
           <div className="mono text-[9px] uppercase text-[#708087]">Committee recommendation</div>
