@@ -164,9 +164,13 @@ export const ScenarioUpdateSchema = z.object({
   memoEntry: z.string().min(1),
 });
 
+export const LiveModelProviderSchema = z.enum(["cerebras", "openai", "anthropic"]);
+export const ModelProviderSchema = z.enum(["demo", "cerebras", "openai", "anthropic"]);
+
 export const InvestigationRunSchema = z.object({
   id: z.string().min(1),
   mode: z.enum(["demo", "live"]),
+  modelProvider: ModelProviderSchema,
   status: z.enum(["queued", "running", "complete", "partial", "failed"]),
   profile: CompanyProfileSchema,
   sources: z.array(SourceDocumentSchema),
@@ -184,6 +188,7 @@ export const InvestigationRunSchema = z.object({
 export const AnalysisRequestSchema = z.object({
   url: z.string().trim().min(1).max(2048),
   mode: z.enum(["demo", "live"]),
+  provider: LiveModelProviderSchema.optional().default("cerebras"),
 });
 
 export const ScenarioRequestSchema = z.object({
@@ -203,4 +208,6 @@ export type ProbabilityScenario = z.infer<typeof ProbabilityScenarioSchema>;
 export type CommitteeVerdict = z.infer<typeof CommitteeVerdictSchema>;
 export type InvestmentMemo = z.infer<typeof InvestmentMemoSchema>;
 export type ScenarioUpdate = z.infer<typeof ScenarioUpdateSchema>;
+export type LiveModelProvider = z.infer<typeof LiveModelProviderSchema>;
+export type ModelProvider = z.infer<typeof ModelProviderSchema>;
 export type InvestigationRun = z.infer<typeof InvestigationRunSchema>;

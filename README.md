@@ -1,11 +1,11 @@
 # StartupSignal V2
 
-StartupSignal turns a startup name or website into an evidence-backed venture investigation, specialist-agent findings, a supported valuation snapshot, a committee verdict, scenario stress tests, a living investment memo, and a contextual research channel. V2 preserves the original product experience while moving live synthesis to Cerebras for lower-latency model inference.
+StartupSignal turns a startup name or website into an evidence-backed venture investigation, specialist-agent findings, a supported valuation snapshot, a committee verdict, scenario stress tests, a living investment memo, and a contextual research channel. V2 supports selectable Cerebras, OpenAI, and Anthropic synthesis while preserving the same evidence and validation contracts.
 
 The application has two paths:
 
 - **Demo:** a deterministic, explicitly fictional Heliograph investigation with no API key or network dependency.
-- **Live:** an SSRF-protected bounded crawl enriched with Tavily first-party and independent search, followed by concurrent, Zod-validated Cerebras synthesis.
+- **Live:** an SSRF-protected bounded crawl enriched with Tavily first-party and independent search, followed by concurrent, Zod-validated synthesis through the selected provider.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system and trust-boundary diagrams.
 
@@ -14,6 +14,8 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system and trust-bounda
 - Next.js 16 App Router, React 19, and strict TypeScript
 - Tailwind CSS 4 and Motion
 - Official Cerebras Cloud SDK using Chat Completions and strict JSON Schema output
+- Official OpenAI SDK using Responses API structured outputs
+- Official Anthropic SDK using Messages API structured outputs
 - Tavily Search and Extract through bounded, server-only REST calls
 - Zod schemas for model packets, requests, events, investigations, and scenarios
 - Cheerio for inert HTML text extraction
@@ -37,10 +39,14 @@ Environment variables:
 CEREBRAS_API_KEY=your_cerebras_api_key
 TAVILY_API_KEY=your_tavily_api_key
 CEREBRAS_MODEL=gemma-4-31b
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-5.6-terra
+ANTHROPIC_API_KEY=your_anthropic_api_key
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-`CEREBRAS_API_KEY` is required for live synthesis. `TAVILY_API_KEY` is required when the input is a startup name and recommended for indexed first-party and independent evidence; without it, users must enter a website and the app falls back to direct crawling and sitemap metadata. `CEREBRAS_MODEL` overrides the default. `NEXT_PUBLIC_APP_URL` is optional because Vercel's system URL is detected automatically. API keys are read only by server route code and are never sent to the browser.
+At least one model provider key is required for live synthesis. The landing-page selector enables configured Cerebras, OpenAI, and Anthropic models, and the selected provider remains attached to the investigation, scenario analysis, and research channel. `TAVILY_API_KEY` is required when the input is a startup name and recommended for indexed first-party and independent evidence; without it, users must enter a website and the app falls back to direct crawling and sitemap metadata. `NEXT_PUBLIC_APP_URL` is optional because Vercel's system URL is detected automatically. API keys are read only by server route code and are never sent to the browser.
 
 ## Verification
 
@@ -81,7 +87,7 @@ Run the environment commands with `preview` if live analysis is needed on previe
 
 The crawler accepts only HTTP/S, removes credentials and fragments, limits ports, resolves DNS, blocks private, reserved, transition, link-local, and metadata destinations, pins each connection to a validated public address, and repeats that process after every redirect. It honors `Allow`, `Disallow`, wildcard, and end-anchor robots rules; caps redirects, time, pages, and retained response bytes; and decodes declared web charsets. It accepts only text content and removes scripts, styles, frames, SVG, and forms before model input. Pages larger than 500 KB are truncated at the byte boundary and coverage warnings remain attached to the investigation.
 
-Fetched content is untrusted data, never model instruction. Cerebras receives explicit instruction hierarchy and only the bounded corpus. For substantive corpora, three strict JSON Schema packets run concurrently, each stays under Cerebras's 5,000-character schema limit, and all are revalidated with Zod before the UI sees a result. Server-owned URL, timestamp, and model fields are injected after validation. A single time-bounded repair attempt handles malformed provider output.
+Fetched content is untrusted data, never model instruction. The selected provider receives explicit instruction hierarchy and only the bounded corpus. For substantive corpora, three structured packets run concurrently and are revalidated with Zod before the UI sees a result. Cerebras packets also stay under its 5,000-character schema limit. Server-owned URL, timestamp, provider, and model fields are injected after validation. A single time-bounded repair attempt handles malformed provider output.
 
 Tavily runs two deterministic searches: one restricted to the submitted domain and one for independent evidence with social/UGC domains excluded. Returned URLs are normalized, checked for public DNS destinations, deduplicated, capped at six, and optionally extracted into query-focused chunks. Search and extraction responses are Zod-validated and remain explicitly untrusted.
 
@@ -89,9 +95,9 @@ Binary office documents, low-information extraction output, and independent resu
 
 For startup-name inputs, Tavily performs one bounded official-site lookup before investigation. Deterministic scoring favors matching company domains and titles, excludes directories and social platforms, and rejects ambiguous results. The selected origin still passes the same URL normalization, public-DNS validation, and connection-pinned crawling controls as a directly entered website.
 
-When a homepage returns HTTP 403 or 429, publicly accessible same-origin XML sitemaps remain a metadata fallback while Tavily attempts to recover substantive first-party and independent evidence. If Tavily also returns no evidence, a deterministic sitemap-only path returns `Insufficient Evidence` without invoking Cerebras.
+When a homepage returns HTTP 403 or 429, publicly accessible same-origin XML sitemaps remain a metadata fallback while Tavily attempts to recover substantive first-party and independent evidence. If Tavily also returns no evidence, a deterministic sitemap-only path returns `Insufficient Evidence` without invoking a model provider.
 
-The research channel is available after a live investigation completes. Every question carries the validated active-company run and up to eight recent conversation turns. Tavily retrieves at most four question-specific sources, Cerebras returns a structured answer with confidence, forecast range when applicable, assumptions, unknowns, and evidence IDs, and the server removes citations that do not match supplied evidence.
+The research channel is available after a live investigation completes. Every question carries the validated active-company run and up to eight recent conversation turns. Tavily retrieves at most four question-specific sources, the investigation's selected provider returns a structured answer with confidence, forecast range when applicable, assumptions, unknowns, and evidence IDs, and the server removes citations that do not match supplied evidence.
 
 ## Current limitations
 

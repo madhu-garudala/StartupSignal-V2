@@ -1,6 +1,6 @@
 import "server-only";
 
-import { callCerebrasStructured } from "@/lib/ai/cerebras";
+import { callProviderStructured, liveProvider } from "@/lib/ai/provider";
 import { inlineEvidenceIds, sanitizeInlineCitations } from "@/lib/ai/research-chat-citations";
 import {
   ResearchChatAnswerSchema,
@@ -60,7 +60,8 @@ export async function answerResearchQuestion(
     })),
   ];
   const validIds = new Set(evidence.map((item) => item.id));
-  const answer = await callCerebrasStructured({
+  const provider = liveProvider(run.modelProvider);
+  const answer = await callProviderStructured(provider, {
     name: "startup_signal_research_chat",
     validator: ResearchChatAnswerSchema,
     system: CHAT_SYSTEM,
@@ -89,7 +90,7 @@ export async function answerResearchQuestion(
     }),
     maxCompletionTokens: 2_200,
     signal,
-    primaryTimeoutMs: 16_000,
+    primaryTimeoutMs: provider === "cerebras" ? 16_000 : 30_000,
     repairTimeoutMs: 10_000,
   });
 

@@ -92,6 +92,7 @@ const agents: AgentReport[] = [
 const heliographWithScenarios: InvestigationRun = InvestigationRunSchema.parse({
   id: "demo-heliograph-2026-07",
   mode: "demo",
+  modelProvider: "demo",
   status: "complete",
   profile: {
     name: "Heliograph",

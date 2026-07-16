@@ -4,12 +4,24 @@ import { useRef, useState } from "react";
 import { Landing } from "@/components/landing";
 import { Workspace, type StageState, type WorkspaceTab } from "@/components/workspace";
 import { InvestigationEventSchema } from "@/lib/orchestration/events";
-import { InvestigationRunSchema, type AgentReport, type CommitteeStatement, type EvidenceItem, type InvestigationRun } from "@/lib/schemas/investigation";
+import { InvestigationRunSchema, type AgentReport, type CommitteeStatement, type EvidenceItem, type InvestigationRun, type LiveModelProvider } from "@/lib/schemas/investigation";
 
-export function StartupSignal() {
+export type ModelOption = {
+  provider: LiveModelProvider;
+  label: string;
+  model: string;
+  configured: boolean;
+};
+
+export function StartupSignal({ modelOptions }: { modelOptions: ModelOption[] }) {
   const [view, setView] = useState<"landing" | "workspace">("landing");
   const [url, setUrl] = useState("");
   const [mode, setMode] = useState<"demo" | "live">("demo");
+  const [provider, setProvider] = useState<LiveModelProvider>(() => (
+    modelOptions.find((option) => option.provider === "cerebras" && option.configured)?.provider
+      || modelOptions.find((option) => option.configured)?.provider
+      || "cerebras"
+  ));
   const [run, setRun] = useState<InvestigationRun | null>(null);
   const [stages, setStages] = useState<Record<string, StageState>>({});
   const [agents, setAgents] = useState<AgentReport[]>([]);
@@ -46,7 +58,7 @@ export function StartupSignal() {
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: target, mode: selectedMode }),
+        body: JSON.stringify({ url: target, mode: selectedMode, provider }),
         signal: requestController.signal,
       });
       if (!response.ok || !response.body) {
@@ -111,10 +123,22 @@ export function StartupSignal() {
     setRunning(false);
   }
 
-  if (view === "landing") return <Landing url={url} setUrl={setUrl} error={error} onAnalyze={() => start("live")} onDemo={() => start("demo")} />;
+  if (view === "landing") return (
+    <Landing
+      url={url}
+      setUrl={setUrl}
+      provider={provider}
+      setProvider={setProvider}
+      modelOptions={modelOptions}
+      error={error}
+      onAnalyze={() => start("live")}
+      onDemo={() => start("demo")}
+    />
+  );
   return (
     <Workspace
       mode={mode}
+      provider={provider}
       targetUrl={mode === "demo" ? "heliograph.energy" : url}
       running={running}
       run={run}

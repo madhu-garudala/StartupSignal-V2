@@ -1,13 +1,18 @@
 "use client";
 
 import Image from "next/image";
-import { ArrowRight, CircuitBoard, DatabaseZap, Scale, Sparkles } from "lucide-react";
+import { ArrowRight, CircuitBoard, Cpu, DatabaseZap, Scale, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 import { BrandMark } from "@/components/brand-mark";
+import type { ModelOption } from "@/components/startup-signal";
+import type { LiveModelProvider } from "@/lib/schemas/investigation";
 
 type Props = {
   url: string;
   setUrl: (url: string) => void;
+  provider: LiveModelProvider;
+  setProvider: (provider: LiveModelProvider) => void;
+  modelOptions: ModelOption[];
   error: string | null;
   onAnalyze: () => void;
   onDemo: () => void;
@@ -19,7 +24,7 @@ const capabilities = [
   { icon: Scale, title: "A committee, not a score", copy: "Bull and bear cases survive into a structured partner decision." },
 ];
 
-export function Landing({ url, setUrl, error, onAnalyze, onDemo }: Props) {
+export function Landing({ url, setUrl, provider, setProvider, modelOptions, error, onAnalyze, onDemo }: Props) {
   return (
     <main className="min-h-screen overflow-hidden bg-[#08090a]">
       <section className="relative flex min-h-[92vh] flex-col border-b border-[#1c2225]">
@@ -45,6 +50,23 @@ export function Landing({ url, setUrl, error, onAnalyze, onDemo }: Props) {
           </motion.div>
 
           <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .15, duration: .55 }} className="mt-10 w-full max-w-[760px]">
+            <div className="mb-3 flex items-center justify-end gap-3">
+              <label htmlFor="model-provider" className="mono flex items-center gap-2 text-[9px] uppercase text-[#77858b]">
+                <Cpu size={12} className="text-[var(--cyan)]" /> Inference model
+              </label>
+              <select
+                id="model-provider"
+                value={provider}
+                onChange={(event) => setProvider(event.target.value as LiveModelProvider)}
+                className="focus-ring h-9 max-w-[260px] border border-[#344047] bg-[#0b0f11] px-3 text-xs text-[#d5dfe2] outline-none"
+              >
+                {modelOptions.map((option) => (
+                  <option key={option.provider} value={option.provider} disabled={!option.configured}>
+                    {option.label} · {option.model}{option.configured ? "" : " · not configured"}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="glass flex flex-col gap-2 border border-[#374147] p-2 shadow-[0_20px_80px_rgba(0,0,0,.5),0_0_40px_rgba(107,230,239,.05)] sm:flex-row">
               <label className="sr-only" htmlFor="startup-query">Startup name or website</label>
               <input

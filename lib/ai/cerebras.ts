@@ -61,7 +61,7 @@ async function createCompletion(
   }
 }
 
-type StructuredRequest<T> = {
+export type StructuredRequest<T> = {
   name: string;
   validator: ZodType<T>;
   system: string;

@@ -1,4 +1,5 @@
 import { answerResearchQuestion } from "@/lib/ai/research-chat";
+import { isProviderConfigured, liveProvider, providerConfigurationError } from "@/lib/ai/provider";
 import { ResearchChatRequestSchema } from "@/lib/schemas/research-chat";
 import { checkRateLimit, requestClientKey } from "@/lib/security/rate-limit";
 
@@ -15,7 +16,8 @@ export async function POST(request: Request) {
   if (body.data.run.mode !== "live" || body.data.run.status !== "complete") {
     return Response.json({ error: "Research chat requires a completed live investigation." }, { status: 400 });
   }
-  if (!process.env.CEREBRAS_API_KEY) return Response.json({ error: "Research chat requires CEREBRAS_API_KEY." }, { status: 503 });
+  const provider = liveProvider(body.data.run.modelProvider);
+  if (!isProviderConfigured(provider)) return Response.json({ error: providerConfigurationError(provider) }, { status: 503 });
 
   try {
     return Response.json(await answerResearchQuestion(body.data.run, body.data.messages, body.data.question, request.signal));

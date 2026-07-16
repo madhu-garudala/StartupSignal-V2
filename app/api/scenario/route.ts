@@ -1,4 +1,5 @@
 import { analyzeScenario } from "@/lib/ai/live-analysis";
+import { isProviderConfigured, liveProvider, providerConfigurationError } from "@/lib/ai/provider";
 import { demoScenarioUpdates } from "@/lib/demo/heliograph";
 import { ScenarioRequestSchema } from "@/lib/schemas/investigation";
 import { checkRateLimit, requestClientKey } from "@/lib/security/rate-limit";
@@ -19,7 +20,8 @@ export async function POST(request: Request) {
       return Response.json({ update: match });
     }
     if (body.data.run.status !== "complete") return Response.json({ error: "Live scenarios require a completed investigation." }, { status: 400 });
-    if (!process.env.CEREBRAS_API_KEY) return Response.json({ error: "Live scenarios require CEREBRAS_API_KEY." }, { status: 503 });
+    const provider = liveProvider(body.data.run.modelProvider);
+    if (!isProviderConfigured(provider)) return Response.json({ error: providerConfigurationError(provider) }, { status: 503 });
     return Response.json({ update: await analyzeScenario(body.data.run, body.data.scenario, request.signal) });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Scenario analysis failed." }, { status: 500 });

@@ -11,13 +11,14 @@ import { BrandMark } from "@/components/brand-mark";
 import { ResearchChat } from "@/components/research-chat";
 import { demoScenarioPrompts } from "@/lib/demo/heliograph";
 import { pipelineStages } from "@/lib/orchestration/events";
-import { ScenarioUpdateSchema, type AgentReport, type CommitteeStatement, type EvidenceItem, type InvestigationRun, type ValuationSnapshot } from "@/lib/schemas/investigation";
+import { ScenarioUpdateSchema, type AgentReport, type CommitteeStatement, type EvidenceItem, type InvestigationRun, type LiveModelProvider, type ModelProvider, type ValuationSnapshot } from "@/lib/schemas/investigation";
 
 export type StageState = { status: "queued" | "running" | "complete" | "low_evidence" | "failed"; message: string };
 export type WorkspaceTab = "investigation" | "verdict" | "scenarios" | "memo";
 
 type Props = {
   mode: "demo" | "live";
+  provider: LiveModelProvider;
   targetUrl: string;
   running: boolean;
   run: InvestigationRun | null;
@@ -57,8 +58,9 @@ function StatusIcon({ status }: { status?: StageState["status"] }) {
   return <Circle size={8} className="text-[#475158]" />;
 }
 
-function ModeBadge({ mode }: { mode: "demo" | "live" }) {
-  return <span className={`mono border px-2 py-1 text-[9px] uppercase ${mode === "demo" ? "border-[#765b31] bg-[#281e12] text-[var(--amber)]" : "border-[#24565c] bg-[#102327] text-[var(--cyan)]"}`}>{mode === "demo" ? "Fictional demo data" : "Live website evidence"}</span>;
+function ModeBadge({ mode, provider }: { mode: "demo" | "live"; provider?: ModelProvider }) {
+  const providerLabel = provider === "anthropic" ? "Anthropic" : provider === "openai" ? "OpenAI" : "Cerebras";
+  return <span className={`mono border px-2 py-1 text-[9px] uppercase ${mode === "demo" ? "border-[#765b31] bg-[#281e12] text-[var(--amber)]" : "border-[#24565c] bg-[#102327] text-[var(--cyan)]"}`}>{mode === "demo" ? "Fictional demo data" : `Live · ${providerLabel}`}</span>;
 }
 
 export function Workspace(props: Props) {
@@ -82,7 +84,7 @@ export function Workspace(props: Props) {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-xs font-semibold text-[#dce3e6]">{props.run?.profile.name || props.targetUrl}</span>
-              <span className="hidden sm:inline"><ModeBadge mode={props.mode} /></span>
+              <span className="hidden sm:inline"><ModeBadge mode={props.mode} provider={props.run?.modelProvider || props.provider} /></span>
               {props.run && (
                 <span
                   className={`mono max-w-[120px] shrink-0 truncate border px-2 py-1 text-[9px] uppercase sm:max-w-[220px] ${valuation.status === "unknown" ? "border-[#3b4145] text-[#7d898f]" : "border-[#3c5b46] bg-[#101b14] text-[var(--green)]"}`}
@@ -285,7 +287,7 @@ function VerdictView({ run, onMemo }: { run: InvestigationRun; onMemo: () => voi
     <div className="mx-auto max-w-[1380px] px-4 py-7 sm:px-7">
       <section className="grid gap-6 border-b border-[#252c30] pb-8 lg:grid-cols-[1fr_330px]">
         <div>
-          <div className="flex flex-wrap items-center gap-3"><ModeBadge mode={run.mode} /><span className="mono text-[9px] text-[#718087]">ANALYZED {new Date(run.profile.analyzedAt).toLocaleDateString()}</span></div>
+          <div className="flex flex-wrap items-center gap-3"><ModeBadge mode={run.mode} provider={run.modelProvider} /><span className="mono text-[9px] text-[#718087]">ANALYZED {new Date(run.profile.analyzedAt).toLocaleDateString()}</span></div>
           <h1 className="mt-5 text-4xl font-semibold text-white">{run.profile.name}</h1>
           <p className="mt-3 max-w-[780px] text-base leading-7 text-[#9ea9ae]">{run.profile.description}</p>
           <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs text-[#718087]"><span>{run.profile.category}</span><span>{run.profile.stage} {run.profile.stageInferred && "(inferred)"}</span><span>{run.profile.location}</span><span>{run.profile.founders.join(" · ") || "Founders unknown"}</span></div>
@@ -451,7 +453,7 @@ function MemoView({ run }: { run: InvestigationRun }) {
   const sourceMap = useMemo(() => new Map(run.evidence.map((item, index) => [item.id, index + 1])), [run.evidence]);
   return (
     <div className="mx-auto max-w-[980px] px-4 py-8 sm:px-7">
-      <div className="no-print mb-4 flex items-center justify-between"><ModeBadge mode={run.mode} /><button onClick={() => window.print()} className="focus-ring flex items-center gap-2 border border-[#2c363b] px-3 py-2 text-xs text-[#a7b2b7] hover:text-white"><Printer size={14} /> Print memo</button></div>
+      <div className="no-print mb-4 flex items-center justify-between"><ModeBadge mode={run.mode} provider={run.modelProvider} /><button onClick={() => window.print()} className="focus-ring flex items-center gap-2 border border-[#2c363b] px-3 py-2 text-xs text-[#a7b2b7] hover:text-white"><Printer size={14} /> Print memo</button></div>
       <article className="memo-print border border-[#293136] bg-[#0d1012] px-5 py-8 sm:px-12 sm:py-12">
         <header className="border-b border-[#30393d] pb-10">
           <div className="flex items-center justify-between"><BrandMark /><span className="mono text-[9px] text-[#68757b]">IC MEMORANDUM</span></div>

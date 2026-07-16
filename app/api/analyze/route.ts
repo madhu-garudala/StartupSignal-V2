@@ -1,4 +1,5 @@
 import { analyzeSources } from "@/lib/ai/live-analysis";
+import { isProviderConfigured, providerConfigurationError, providerName } from "@/lib/ai/provider";
 import { crawlCompany } from "@/lib/crawling/crawler";
 import { heliographDemo } from "@/lib/demo/heliograph";
 import { pipelineStages, type InvestigationEvent } from "@/lib/orchestration/events";
@@ -23,6 +24,9 @@ export async function POST(request: Request) {
   if (!checkRateLimit(ip).allowed) return Response.json({ error: "Too many investigations. Try again in a minute." }, { status: 429 });
   const body = AnalysisRequestSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return Response.json({ error: "A valid startup name or website and analysis mode are required." }, { status: 400 });
+  if (body.data.mode === "live" && !isProviderConfigured(body.data.provider)) {
+    return Response.json({ error: providerConfigurationError(body.data.provider) }, { status: 503 });
+  }
 
   const lifecycle = new AbortController();
   const deadline = setTimeout(() => {
@@ -63,7 +67,7 @@ export async function POST(request: Request) {
           if (resolution.warnings.length) {
             send({ type: "stage", stageId: "discovery", status: "running", message: `Resolved startup name to ${submitted.hostname}` });
           }
-          send({ type: "stage", stageId: "market", status: "running", message: "Searching bounded first-party and independent evidence" });
+          send({ type: "stage", stageId: "market", status: "running", message: `Searching evidence before ${providerName(body.data.provider)} synthesis` });
           const [crawlAttempt, searchAttempt] = await Promise.allSettled([
             crawlCompany(submitted.toString(), lifecycle.signal),
             searchCompanyEvidence(submitted.toString(), lifecycle.signal),
@@ -119,6 +123,7 @@ export async function POST(request: Request) {
               ...resolution.warnings,
               ...(sitemapOnly ? ["Only sitemap metadata was recovered; deterministic evidence constraints apply."] : []),
             ],
+            body.data.provider,
             lifecycle.signal,
           ));
           for (const item of run.evidence) send({ type: "evidence", evidenceId: item.id, evidence: item });

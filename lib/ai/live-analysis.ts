@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { callCerebrasStructured, cerebrasModel } from "@/lib/ai/cerebras";
+import { callProviderStructured, liveProvider, providerModel, providerName } from "@/lib/ai/provider";
 import {
   AgentReportSchema,
   CommitteeStatementSchema,
@@ -11,6 +11,7 @@ import {
   ScenarioUpdateSchema,
   ScoreDimensionSchema,
   type InvestigationRun,
+  type LiveModelProvider,
   type SourceDocument,
 } from "@/lib/schemas/investigation";
 
@@ -371,6 +372,7 @@ function finalizeAnalysis(
   sources: SourceDocument[],
   evidenceSeeds: Array<{ id: string; sourceId: string; title: string; url: string; sourceType: string; excerpt: string; reliability: "high" | "medium" | "low" }>,
   model: string,
+  modelProvider: LiveModelProvider,
   now: string,
   warnings: string[],
 ) {
@@ -396,6 +398,7 @@ function finalizeAnalysis(
   return InvestigationRunSchema.parse({
     id: `live-${crypto.randomUUID()}`,
     mode: "live",
+    modelProvider,
     status: "complete",
     profile: {
       ...parsed.profile,
@@ -429,9 +432,16 @@ function finalizeAnalysis(
   });
 }
 
-export async function analyzeSources(canonicalUrl: string, sources: SourceDocument[], crawlWarnings: string[] = [], signal?: AbortSignal): Promise<InvestigationRun> {
+export async function analyzeSources(
+  canonicalUrl: string,
+  sources: SourceDocument[],
+  crawlWarnings: string[] = [],
+  provider: LiveModelProvider = "cerebras",
+  signal?: AbortSignal,
+): Promise<InvestigationRun> {
   const corpus = safeCorpus(sources);
-  const model = cerebrasModel();
+  const model = providerModel(provider);
+  const providerLabel = providerName(provider);
   const now = new Date().toISOString();
   const sharedInput = `Analyze the following bounded evidence corpus for ${canonicalUrl}.
 Use Unknown for undiscovered fields and keep every text field concise.
@@ -446,14 +456,15 @@ END UNTRUSTED SOURCE DATA`;
       canonicalUrl,
       sources,
       corpus.map((item) => ({ id: item.evidenceId, sourceId: item.sourceId, title: item.title, url: item.url, sourceType: item.sourceType, excerpt: item.untrustedText, reliability: item.reliability })),
-      `Cerebras ${model} (not invoked)`,
+      `${providerLabel} ${model} (not invoked)`,
+      provider,
       now,
       ["SITEMAP-ONLY LIVE ANALYSIS: Direct page content was unavailable; deterministic evidence constraints were applied without model synthesis.", ...crawlWarnings],
     );
   }
 
   const [intelligence, decision, memo] = await Promise.all([
-    callCerebrasStructured({
+    callProviderStructured(provider, {
       name: "startup_signal_intelligence",
       validator: ProviderIntelligencePacketSchema,
       system: SYSTEM_INSTRUCTIONS,
@@ -461,7 +472,7 @@ END UNTRUSTED SOURCE DATA`;
       maxCompletionTokens: 5_500,
       signal,
     }),
-    callCerebrasStructured({
+    callProviderStructured(provider, {
       name: "startup_signal_decision",
       validator: ProviderDecisionPacketSchema,
       system: SYSTEM_INSTRUCTIONS,
@@ -469,7 +480,7 @@ END UNTRUSTED SOURCE DATA`;
       maxCompletionTokens: 3_500,
       signal,
     }),
-    callCerebrasStructured({
+    callProviderStructured(provider, {
       name: "startup_signal_memo",
       validator: MemoPacketSchema,
       system: SYSTEM_INSTRUCTIONS,
@@ -485,7 +496,8 @@ END UNTRUSTED SOURCE DATA`;
     canonicalUrl,
     sources,
     corpus.map((item) => ({ id: item.evidenceId, sourceId: item.sourceId, title: item.title, url: item.url, sourceType: item.sourceType, excerpt: item.untrustedText, reliability: item.reliability })),
-    `Cerebras ${model}`,
+    `${providerLabel} ${model}`,
+    provider,
     now,
     [sources.every((source) => source.sourceType === "First-party sitemap catalog")
       ? "SITEMAP-ONLY LIVE ANALYSIS: Direct page content was unavailable; evidence is limited to published first-party URL catalogs and timestamps."
@@ -496,14 +508,15 @@ END UNTRUSTED SOURCE DATA`;
 }
 
 export async function analyzeScenario(run: InvestigationRun, scenario: string, signal?: AbortSignal) {
-  return callCerebrasStructured({
+  const provider = liveProvider(run.modelProvider);
+  return callProviderStructured(provider, {
     name: "startup_signal_scenario",
     validator: ScenarioUpdateSchema,
     system: `${SYSTEM_INSTRUCTIONS}\nApply a counterfactual to the existing validated verdict. Do not add new evidence or treat the scenario as fact.`,
     user: JSON.stringify({ scenario, verdict: run.verdict, scores: run.scores, probabilities: run.probabilities, thesis: run.memo.thesis, evidenceIds: run.evidence.map((item) => item.id) }),
     maxCompletionTokens: 3_000,
     signal,
-    primaryTimeoutMs: 18_000,
-    repairTimeoutMs: 8_000,
+    primaryTimeoutMs: provider === "cerebras" ? 18_000 : 26_000,
+    repairTimeoutMs: provider === "cerebras" ? 8_000 : 10_000,
   });
 }

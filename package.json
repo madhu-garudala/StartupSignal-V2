@@ -12,11 +12,13 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.1",
     "@cerebras/cerebras_cloud_sdk": "^1.64.1",
     "cheerio": "^1.1.2",
     "lucide-react": "^0.468.0",
     "motion": "^12.42.2",
     "next": "^16.2.10",
+    "openai": "^6.47.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "undici": "^6.27.0",
